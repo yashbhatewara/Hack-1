@@ -1,0 +1,34 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+python_files = ["test_*.py", "*_test.py"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--color=yes",
+    "-x",
+]
+markers = [
+    "unit: Pure unit tests with no I/O (fast)",
+    "integration: Tests against live services (slow, requires docker)",
+    "e2e: End-to-end API tests against a running server",
+]
+
+[tool.coverage.run]
+source = ["src/eng_memory_os"]
+branch = true
+omit = ["*/tests/*", "*/__init__.py", "*/migrations/*"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 70
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "pass",
+]

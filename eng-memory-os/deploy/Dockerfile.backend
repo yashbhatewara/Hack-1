@@ -1,0 +1,42 @@
+# ===========================
+# Backend Dockerfile (Multi-stage)
+# ===========================
+
+# --- Stage 1: Build ---
+FROM python:3.12-slim AS builder
+
+WORKDIR /app
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Copy dependency files
+COPY pyproject.toml README.md ./
+
+# Install dependencies
+RUN uv sync --no-dev --no-install-project
+
+# Copy source code
+COPY src/ ./src/
+
+# --- Stage 2: Runtime ---
+FROM python:3.12-slim AS runtime
+
+WORKDIR /app
+
+# Copy installed packages and source from builder
+COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /app/src /app/src
+
+# Set PATH to use the virtual environment
+ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONPATH="/app/src"
+ENV PYTHONUNBUFFERED=1
+
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python -c "import httpx; httpx.get('http://localhost:8000/api/v1/system/health').raise_for_status()" || exit 1
+
+CMD ["uvicorn", "eng_memory_os.cmd.api_server:app", "--host", "0.0.0.0", "--port", "8000"]
