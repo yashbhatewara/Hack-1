@@ -77,9 +77,14 @@ class OpenAIProvider:
         """Generate embeddings using OpenAI."""
         start_time = time.perf_counter()
 
+        kwargs = {}
+        if "nvidia" in str(self._client.base_url) or request.model.startswith("nvidia/"):
+            kwargs["extra_body"] = {"input_type": "passage"}
+
         response = await self._client.embeddings.create(
             input=request.texts,
             model=request.model,
+            **kwargs
         )
 
         latency_ms = (time.perf_counter() - start_time) * 1000

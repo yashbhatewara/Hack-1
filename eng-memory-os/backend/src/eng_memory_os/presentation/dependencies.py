@@ -108,6 +108,7 @@ async def initialize_services(settings: Settings) -> None:
         EventAuditLogger,
         OnEntitiesExtractedHandler,
         OnMemoryIngestedHandler,
+        OnMemoryUpdatedHandler,
     )
     from eng_memory_os.application.pipelines.memory_pipeline import MemoryPipeline
     from eng_memory_os.application.knowledge.extract_entities import ExtractEntitiesUseCase
@@ -137,8 +138,7 @@ async def initialize_services(settings: Settings) -> None:
         memory_repo=await _get_memory_repo_internal(),
         pipeline=pipeline,
     ))
-    _event_bus.subscribe(MemoryUpdated, OnMemoryIngestedHandler(
-        memory_repo=await _get_memory_repo_internal(),
+    _event_bus.subscribe(MemoryUpdated, OnMemoryUpdatedHandler(
         pipeline=pipeline,
     ))
     _event_bus.subscribe(EntitiesExtracted, OnEntitiesExtractedHandler(

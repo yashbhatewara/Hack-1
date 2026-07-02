@@ -67,11 +67,16 @@ class OpenAIEmbeddingService(EmbeddingService):
         all_embeddings: list[list[float]] = []
         batch_size = 100  # OpenAI supports up to 2048 inputs per request
 
+        kwargs = {}
+        if "nvidia" in str(self._client.base_url) or self._model.startswith("nvidia/"):
+            kwargs["extra_body"] = {"input_type": "passage"}
+
         for i in range(0, len(texts), batch_size):
             batch = texts[i : i + batch_size]
             response = await self._client.embeddings.create(
                 input=batch,
                 model=self._model,
+                **kwargs
             )
             batch_embeddings = [item.embedding for item in response.data]
             all_embeddings.extend(batch_embeddings)
@@ -87,9 +92,14 @@ class OpenAIEmbeddingService(EmbeddingService):
 
     async def embed_query(self, query: str) -> list[float]:
         """Generate a single query embedding."""
+        kwargs = {}
+        if "nvidia" in str(self._client.base_url) or self._model.startswith("nvidia/"):
+            kwargs["extra_body"] = {"input_type": "query"}
+
         response = await self._client.embeddings.create(
             input=[query],
             model=self._model,
+            **kwargs
         )
         return response.data[0].embedding
 
