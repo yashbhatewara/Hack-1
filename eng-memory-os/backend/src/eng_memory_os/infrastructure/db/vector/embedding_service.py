@@ -50,13 +50,14 @@ class OpenAIEmbeddingService(EmbeddingService):
     def __init__(
         self,
         api_key: str,
+        base_url: str | None = None,
         model: str = "text-embedding-3-small",
+        dimension: int = 1536,
     ) -> None:
         import openai
-        self._client = openai.AsyncOpenAI(api_key=api_key)
+        self._client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
         self._model = model
-        # text-embedding-3-small produces 1536-dimensional vectors
-        self._dimension = 1536
+        self._dimension = dimension
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings using OpenAI API with batching."""

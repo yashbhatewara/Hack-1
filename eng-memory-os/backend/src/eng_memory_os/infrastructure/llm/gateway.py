@@ -47,6 +47,7 @@ class LLMGatewayImpl(LLMGateway):
         primary_provider: LLMProvider = LLMProvider.OPENAI,
         fallback_provider: LLMProvider = LLMProvider.OLLAMA,
         openai_api_key: str = "",
+        openai_base_url: str | None = None,
         anthropic_api_key: str = "",
         ollama_base_url: str = "http://localhost:11434",
         openai_model: str = "gpt-4o",
@@ -63,7 +64,7 @@ class LLMGatewayImpl(LLMGateway):
         self._default_models: dict[LLMProvider, str] = {}
 
         if openai_api_key:
-            self._providers[LLMProvider.OPENAI] = OpenAIProvider(openai_api_key)
+            self._providers[LLMProvider.OPENAI] = OpenAIProvider(openai_api_key, base_url=openai_base_url)
             self._default_models[LLMProvider.OPENAI] = openai_model
 
         if anthropic_api_key:
@@ -100,16 +101,15 @@ class LLMGatewayImpl(LLMGateway):
                 continue
 
             try:
-                # Override model if using a different provider than requested
-                if provider != request.provider:
-                    request = LLMRequest.create(
-                        provider=provider,
-                        model=self._default_models.get(provider, request.model),
-                        messages=request.messages,
-                        system_prompt=request.system_prompt,
-                        temperature=request.temperature,
-                        max_tokens=request.max_tokens,
-                    )
+                # Always override model to use the provider's configured model
+                request = LLMRequest.create(
+                    provider=provider,
+                    model=self._default_models.get(provider, request.model),
+                    messages=request.messages,
+                    system_prompt=request.system_prompt,
+                    temperature=request.temperature,
+                    max_tokens=request.max_tokens,
+                )
 
                 response = await adapter.complete(request)  # type: ignore[union-attr]
 

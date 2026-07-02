@@ -1,3 +1,8 @@
+# docker-compose up --build
+
+
+
+
 # Back end
 
 # 1) cd eng-memory-os/backend

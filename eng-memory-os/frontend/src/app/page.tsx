@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import {
   Brain, Database, Zap, TrendingUp, Network, Clock, AlertTriangle, CheckCircle,
 } from 'lucide-react';
-import { memoryApi, systemApi, knowledgeApi } from '@/lib/api';
+import { memoryApi, systemApi, knowledgeApi, MemoryStats } from '@/lib/api';
 import { formatDistanceToNow } from 'date-fns';
 
 // ─── Animated stat card ───────────────────────────────────
@@ -37,7 +37,7 @@ function StatCard({
 
 // ─── Status pill ──────────────────────────────────────────
 
-function StatusBar({ stats }: { stats: Record<string, number> }) {
+function StatusBar({ stats }: { stats: MemoryStats }) {
   const items = [
     { key: 'active',     label: 'Active',     cls: 'badge-active'  },
     { key: 'stale',      label: 'Stale',      cls: 'badge-stale'   },
@@ -49,7 +49,7 @@ function StatusBar({ stats }: { stats: Record<string, number> }) {
     <div className="flex flex-wrap gap-2">
       {items.map(({ key, label, cls }) => (
         <span key={key} className={cls}>
-          {label} <strong>{stats[key] ?? 0}</strong>
+          {label} <strong>{stats[key as keyof MemoryStats] ?? 0}</strong>
         </span>
       ))}
     </div>

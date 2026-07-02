@@ -8,6 +8,7 @@ and vector storage (VectorStoreRepository).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import TypedDict
 
 from eng_memory_os.domain.knowledge.entities import (
     EntityType,
@@ -18,6 +19,12 @@ from eng_memory_os.domain.knowledge.entities import (
 )
 from eng_memory_os.domain.knowledge.value_objects import NodeId
 from eng_memory_os.domain.memory.value_objects import MemoryChunk
+
+
+class GraphStats(TypedDict):
+    total_nodes: int
+    total_edges: int
+    nodes_by_type: dict[str, int]
 
 
 class KnowledgeGraphRepository(ABC):
@@ -122,7 +129,7 @@ class KnowledgeGraphRepository(ABC):
         ...
 
     @abstractmethod
-    async def get_graph_stats(self) -> dict[str, int]:
+    async def get_graph_stats(self) -> GraphStats:
         """Return aggregate statistics about the knowledge graph.
 
         Keys: total_nodes, total_edges, nodes_by_type (nested dict).

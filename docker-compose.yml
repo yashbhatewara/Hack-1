@@ -43,13 +43,13 @@ services:
   # ============================
   backend:
     build:
-      context: ./backend
+      context: ./eng-memory-os/backend
       dockerfile: ../deploy/Dockerfile.backend
     container_name: emo-backend
     ports:
       - "${APP_PORT:-8000}:8000"
     env_file:
-      - .env
+      - ./eng-memory-os/.env
     environment:
       POSTGRES_HOST: postgres
       QDRANT_HOST: qdrant
@@ -60,7 +60,7 @@ services:
       qdrant:
         condition: service_healthy
     volumes:
-      - ./backend/src:/app/src
+      - ./eng-memory-os/backend/src:/app/src
     restart: unless-stopped
 
   # ============================
@@ -68,12 +68,12 @@ services:
   # ============================
   worker:
     build:
-      context: ./backend
+      context: ./eng-memory-os/backend
       dockerfile: ../deploy/Dockerfile.backend
     container_name: emo-worker
     command: ["python", "-m", "eng_memory_os.cmd.worker"]
     env_file:
-      - .env
+      - ./eng-memory-os/.env
     environment:
       POSTGRES_HOST: postgres
       QDRANT_HOST: qdrant
@@ -86,7 +86,7 @@ services:
       backend:
         condition: service_healthy
     volumes:
-      - ./backend/src:/app/src
+      - ./eng-memory-os/backend/src:/app/src
     healthcheck:
       disable: true
     restart: unless-stopped
@@ -96,7 +96,7 @@ services:
   # ============================
   frontend:
     build:
-      context: ./frontend
+      context: ./eng-memory-os/frontend
       dockerfile: ../deploy/Dockerfile.frontend
     container_name: emo-frontend
     ports:

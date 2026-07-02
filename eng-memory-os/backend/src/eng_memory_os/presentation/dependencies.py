@@ -55,11 +55,19 @@ async def initialize_services(settings: Settings) -> None:
     # 3. LLM Gateway
     from eng_memory_os.infrastructure.llm.gateway import LLMGatewayImpl
     from eng_memory_os.domain.gateway.entities import LLMProvider
+    
+    openai_api_key = settings.openai_api_key or settings.nvidia_api_key
+    openai_base_url = settings.openai_base_url
+    if settings.nvidia_api_key and not openai_base_url:
+        openai_base_url = "https://integrate.api.nvidia.com/v1"
+        
     _llm_gateway = LLMGatewayImpl(
         primary_provider=LLMProvider.OPENAI,
-        openai_api_key=settings.openai_api_key,
+        openai_api_key=openai_api_key,
+        openai_base_url=openai_base_url,
         anthropic_api_key=settings.anthropic_api_key,
         ollama_base_url=settings.ollama_base_url,
+        openai_model=settings.openai_model,
     )
 
     # 4. Vector Store
@@ -70,9 +78,14 @@ async def initialize_services(settings: Settings) -> None:
     )
 
     # 5. Embedding Service
-    if settings.openai_api_key:
+    if openai_api_key:
         from eng_memory_os.infrastructure.db.vector.embedding_service import OpenAIEmbeddingService
-        _embedding_service = OpenAIEmbeddingService(api_key=settings.openai_api_key)
+        _embedding_service = OpenAIEmbeddingService(
+            api_key=openai_api_key,
+            base_url=openai_base_url,
+            model=settings.openai_embedding_model,
+            dimension=settings.openai_embedding_dimension,
+        )
     else:
         from eng_memory_os.infrastructure.db.vector.embedding_service import OllamaEmbeddingService
         _embedding_service = OllamaEmbeddingService(base_url=settings.ollama_base_url)

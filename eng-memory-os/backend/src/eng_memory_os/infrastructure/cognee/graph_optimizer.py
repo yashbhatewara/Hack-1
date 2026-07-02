@@ -63,15 +63,15 @@ class GraphOptimizer:
             nodes_merged=merged_count,
             nodes_removed=merged_count,
             pagerank_updated=True,
-            total_nodes=stats.get("total_nodes", 0),
-            total_edges=stats.get("total_edges", 0),
+            total_nodes=stats["total_nodes"],
+            total_edges=stats["total_edges"],
         )
 
         logger.info(
             "graph_optimized",
             nodes_merged=merged_count,
-            total_nodes=stats.get("total_nodes", 0),
-            total_edges=stats.get("total_edges", 0),
+            total_nodes=stats["total_nodes"],
+            total_edges=stats["total_edges"],
         )
 
         return optimization_event, events
@@ -83,7 +83,7 @@ class GraphOptimizer:
         that likely refer to the same entity (e.g., "UserService" and "user-service").
         """
         stats = await self._graph_repo.get_graph_stats()
-        total_nodes = stats.get("total_nodes", 0)
+        total_nodes = stats["total_nodes"]
 
         if total_nodes < 2:
             return 0

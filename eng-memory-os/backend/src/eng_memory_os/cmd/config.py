@@ -56,8 +56,11 @@ class Settings(BaseSettings):
 
     # OpenAI
     openai_api_key: str = ""
+    openai_base_url: str | None = None
     openai_model: str = "gpt-4o"
     openai_embedding_model: str = "text-embedding-3-small"
+    openai_embedding_dimension: int = 1536
+    nvidia_api_key: str = ""
 
     # Anthropic
     anthropic_api_key: str = ""

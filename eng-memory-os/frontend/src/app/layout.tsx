@@ -1,14 +1,7 @@
 import type { Metadata } from 'next';
-import { Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import { Providers } from '@/components/providers';
 import { Sidebar } from '@/components/layout/Sidebar';
-
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  variable: '--font-mono',
-});
 
 export const metadata: Metadata = {
   title: 'Engineering Memory OS',
@@ -24,7 +17,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans bg-surface text-white antialiased`} suppressHydrationWarning>
+      <body className="font-sans bg-surface text-white antialiased" suppressHydrationWarning>
         <Providers>
           <div className="flex h-screen overflow-hidden">
             <Sidebar />

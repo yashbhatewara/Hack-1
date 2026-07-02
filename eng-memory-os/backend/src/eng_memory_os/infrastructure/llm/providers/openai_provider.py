@@ -27,8 +27,8 @@ logger = structlog.get_logger(__name__)
 class OpenAIProvider:
     """Adapter for the OpenAI API."""
 
-    def __init__(self, api_key: str) -> None:
-        self._client = openai.AsyncOpenAI(api_key=api_key)
+    def __init__(self, api_key: str, base_url: str | None = None) -> None:
+        self._client = openai.AsyncOpenAI(api_key=api_key, base_url=base_url)
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
         """Send a completion request to OpenAI."""

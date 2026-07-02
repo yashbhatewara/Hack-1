@@ -20,7 +20,10 @@ from eng_memory_os.domain.knowledge.entities import (
     KnowledgeNode,
     RelationshipType,
 )
-from eng_memory_os.domain.knowledge.repositories import KnowledgeGraphRepository
+from eng_memory_os.domain.knowledge.repositories import (
+    GraphStats,
+    KnowledgeGraphRepository,
+)
 from eng_memory_os.domain.knowledge.value_objects import (
     EdgeId,
     EntityMention,
@@ -255,7 +258,7 @@ class CogneeGraphAdapter(KnowledgeGraphRepository):
             scores = nx.pagerank(self._graph, alpha=0.85, max_iter=100)
             # Update node objects
             for nid, score in scores.items():
-                node = self._nodes.get(nid)
+                node = self._nodes.get(str(nid))
                 if node:
                     node.pagerank_score = score
 
@@ -272,13 +275,13 @@ class CogneeGraphAdapter(KnowledgeGraphRepository):
 
         scores = nx.degree_centrality(self._graph)
         for nid, score in scores.items():
-            node = self._nodes.get(nid)
+            node = self._nodes.get(str(nid))
             if node:
                 node.degree_centrality = score
 
         return {str(k): v for k, v in scores.items()}
 
-    async def get_graph_stats(self) -> dict[str, int]:
+    async def get_graph_stats(self) -> GraphStats:
         type_counts: dict[str, int] = {}
         for node in self._nodes.values():
             t = node.entity_type.value
@@ -287,7 +290,7 @@ class CogneeGraphAdapter(KnowledgeGraphRepository):
         return {
             "total_nodes": len(self._nodes),
             "total_edges": len(self._edges),
-            "nodes_by_type": type_counts,  # type: ignore[dict-item]
+            "nodes_by_type": type_counts,
         }
 
     async def find_similar_nodes(
