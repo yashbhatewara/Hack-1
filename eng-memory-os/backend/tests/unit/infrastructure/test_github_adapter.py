@@ -154,3 +154,55 @@ async def test_github_adapter_fetch_recent_with_commits():
         assert "repo" in item.tags
 
 
+@pytest.mark.asyncio
+async def test_github_adapter_fetch_recent_with_files(tmp_path):
+    """Verify fetch_recent successfully walks files and parses README and source files."""
+    adapter = GitHubAdapter("owner", "repo")
+
+    # Create dummy README and python files in a temporary directory
+    temp_dir = tmp_path / "repo-clone"
+    temp_dir.mkdir()
+    (temp_dir / "README.md").write_text("Hello from README", encoding="utf-8")
+
+    src_dir = temp_dir / "src"
+    src_dir.mkdir()
+    (src_dir / "app.py").write_text("print('hello')", encoding="utf-8")
+    (src_dir / "helper.js").write_text("console.log('helper')", encoding="utf-8")
+
+    async def mock_get(url, *args, **kwargs):
+        resp = AsyncMock()
+        resp.status_code = 200
+        resp.json = lambda: []  # No issues
+        return resp
+
+    async def mock_git_cmd(*args, **kwargs):
+        # We don't want git commands to fail
+        if "log" in args:
+            return ""  # No commits to simplify verification
+        return ""
+
+    with patch("httpx.AsyncClient.get", side_effect=mock_get), \
+         patch.object(GitHubAdapter, "_run_git_command", side_effect=mock_git_cmd), \
+         patch("tempfile.mkdtemp", return_value=str(temp_dir)), \
+         patch("shutil.rmtree"):
+        items = await adapter.fetch_recent(limit=5)
+
+        # Check README.md was parsed
+        readme_items = [i for i in items if i.external_id == "readme"]
+        assert len(readme_items) == 1
+        assert readme_items[0].source_type == MemorySource.ARCHITECTURE_DOC
+        assert "README.md" in readme_items[0].title
+        assert "Hello from README" in readme_items[0].content
+
+        # Check source files were parsed
+        app_items = [i for i in items if i.external_id == "src/app.py"]
+        assert len(app_items) == 1
+        assert app_items[0].source_type == MemorySource.ARCHITECTURE_DOC
+        assert "src/app.py" in app_items[0].title
+        assert "print('hello')" in app_items[0].content
+
+        helper_items = [i for i in items if i.external_id == "src/helper.js"]
+        assert len(helper_items) == 1
+        assert "src/helper.js" in helper_items[0].title
+
+

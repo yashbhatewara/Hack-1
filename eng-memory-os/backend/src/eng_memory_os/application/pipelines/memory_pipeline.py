@@ -67,6 +67,8 @@ class MemoryPipeline:
 
             # Stage 3: Semantic Chunking
             chunks = self._semantic_chunk(normalized_content, memory_id)
+            memory.chunks = chunks
+            await self._memory_repo.save(memory)
 
             # Stage 4 & 5: Entity & Relationship Extraction
             extraction_result = await self._extract_entities.execute(memory_id)

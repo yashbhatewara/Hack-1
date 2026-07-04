@@ -192,7 +192,7 @@ class GitHubAdapter(IntegrationAdapter):
             except Exception as e:
                 logger.warning("failed_to_request_github_issues", error=str(e))
 
-            # 2. Fetch Commits using Local Git Clone (0 Rate Limits!)
+            # 2. Fetch Commits and Files using Local Git Clone (0 Rate Limits!)
             import os
             import shutil
             import tempfile
@@ -205,16 +205,83 @@ class GitHubAdapter(IntegrationAdapter):
             temp_dir = tempfile.mkdtemp(prefix="emo-sync-")
             try:
                 logger.info("local_git_clone_started", repo=f"{self.repo_owner}/{self.repo_name}", limit=limit)
-                # Bare clone with depth = limit (only pulls metadata of recent commits)
-                await self._run_git_command("clone", "--bare", f"--depth={limit}", clone_url, temp_dir)
+                # Standard clone with depth = limit (pulls active files and recent commit history)
+                await self._run_git_command("clone", f"--depth={limit}", clone_url, temp_dir)
 
-                # Fetch log output: SHA|AuthorName|AuthorEmail|AuthorTimestamp|Subject
-                # %at is author timestamp as unix epoch
+                # 2a. Ingest README.md first (if exists)
+                readme_item = None
+                for filename in os.listdir(temp_dir):
+                    if filename.lower() == "readme.md":
+                        readme_path = os.path.join(temp_dir, filename)
+                        try:
+                            with open(readme_path, encoding="utf-8", errors="replace") as f:
+                                readme_content = f.read()
+                            html_url = f"https://github.com/{self.repo_owner}/{self.repo_name}/blob/main/{filename}"
+                            content = f"# README.md\n\n**Repository:** {self.repo_owner}/{self.repo_name}\n\n{readme_content}"
+                            readme_item = IngestedItem(
+                                source_uri=html_url,
+                                source_type=MemorySource.ARCHITECTURE_DOC,
+                                title="GitHub Repo: README.md",
+                                content=content,
+                                author="repository",
+                                external_id="readme",
+                                external_timestamp=datetime.now(UTC),
+                                tags=["readme", "github_file", self.repo_name.lower()],
+                            )
+                            logger.info("found_and_queued_readme", path=readme_path)
+                        except Exception as e:
+                            logger.warning("failed_to_read_readme", error=str(e))
+                        break
+
+                if readme_item:
+                    items.append(readme_item)
+
+                # 2b. Scan and ingest source files (limit to 20 files to keep vector DB ingestion fast)
+                code_extensions = {".py", ".js", ".ts", ".json", ".yml", ".yaml", ".sh", ".sql", ".dockerfile", "Dockerfile"}
+                file_count = 0
+                for root, dirs, files_in_dir in os.walk(temp_dir):
+                    # Prune excluded directories to avoid walking down them
+                    dirs[:] = [d for d in dirs if d not in {".git", "node_modules", "venv", "__pycache__", ".idea", ".vscode", "dist", "build"}]
+                    for file in files_in_dir:
+                        if file_count >= 20:
+                            break
+                        ext = os.path.splitext(file)[1].lower()
+                        if ext in code_extensions or file == "Dockerfile":
+                            if file.lower() == "readme.md":
+                                continue
+                            file_path = os.path.join(root, file)
+                            try:
+                                with open(file_path, encoding="utf-8", errors="replace") as f:
+                                    file_content = f.read()
+                                rel_path = os.path.relpath(file_path, temp_dir).replace("\\", "/")
+                                html_url = f"https://github.com/{self.repo_owner}/{self.repo_name}/blob/main/{rel_path}"
+                                content = f"# Source File: {rel_path}\n\n**Repository:** {self.repo_owner}/{self.repo_name}\n\n```python\n{file_content}\n```"
+                                ingested_item = IngestedItem(
+                                    source_uri=html_url,
+                                    source_type=MemorySource.ARCHITECTURE_DOC,
+                                    title=rel_path,
+                                    content=content,
+                                    author="repository",
+                                    external_id=rel_path,
+                                    external_timestamp=datetime.now(UTC),
+                                    tags=["source_file", self.repo_name.lower()],
+                                )
+                                items.append(ingested_item)
+                                file_count += 1
+                            except Exception as e:
+                                logger.warning("failed_to_read_code_file", path=file_path, error=str(e))
+                                continue
+                    if file_count >= 20:
+                        break
+                logger.info("scanned_github_repo_files", count=file_count)
+
+                # 2c. Fetch commit log output
                 log_output = await self._run_git_command(
-                    "--git-dir", temp_dir, "log", "-n", str(limit), "--pretty=format:%H|%an|%ae|%at|%s"
+                    "log", "-n", str(limit), "--pretty=format:%H|%an|%ae|%at|%s", cwd=temp_dir
                 )
 
                 if log_output.strip():
+                    commit_count = 0
                     for line in log_output.strip().split("\n"):
                         try:
                             parts = line.split("|", 4)
@@ -222,12 +289,11 @@ class GitHubAdapter(IntegrationAdapter):
                                 continue
                             sha, author_name, author_email, timestamp_str, subject = parts
 
-                            # Parse timestamp
                             created_at = datetime.fromtimestamp(int(timestamp_str), tz=UTC)
 
-                            # Fetch commit details (message and diff)
+                            # Fetch commit details (message and diff) using the worktree cwd
                             diff_output = await self._run_git_command(
-                                "--git-dir", temp_dir, "show", "--stat", "-p", sha
+                                "show", "--stat", "-p", sha, cwd=temp_dir
                             )
 
                             html_url = f"https://github.com/{self.repo_owner}/{self.repo_name}/commit/{sha}"
@@ -243,7 +309,7 @@ class GitHubAdapter(IntegrationAdapter):
                             ingested_item = IngestedItem(
                                 source_uri=html_url,
                                 source_type=MemorySource.GITHUB_COMMIT,
-                                title=f"GitHub Commit ({sha[:7]}): {subject}",
+                                title=f"Commit {sha[:7]}: {subject}",
                                 content=markdown_content,
                                 author=author_name,
                                 external_id=sha,
@@ -251,14 +317,15 @@ class GitHubAdapter(IntegrationAdapter):
                                 tags=["github_commit", self.repo_name.lower(), sha[:7]],
                             )
                             items.append(ingested_item)
+                            commit_count += 1
                         except Exception as e:
                             logger.warning("failed_to_parse_local_git_commit", error=str(e))
                             continue
-                logger.info("local_git_clone_completed", ingested_commits=len(items))
+                logger.info("local_git_clone_completed", total_ingested_items=len(items))
             except Exception as e:
                 logger.exception("local_git_clone_failed", error=str(e))
             finally:
-                # Clean up local bare clone directory
+                # Clean up local worktree clone directory
                 if os.path.exists(temp_dir):
                     shutil.rmtree(temp_dir)
 
