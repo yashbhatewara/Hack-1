@@ -23,6 +23,9 @@ COPY src/ ./src/
 # --- Stage 2: Runtime ---
 FROM python:3.12-slim AS runtime
 
+# Install Git for local repository ingestion clone
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Copy installed packages and source from builder

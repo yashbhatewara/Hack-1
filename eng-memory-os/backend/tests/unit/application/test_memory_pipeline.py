@@ -94,8 +94,8 @@ class TestMemoryPipelineChunker:
 
     @pytest.mark.unit
     def test_estimate_tokens_reasonable(self, pipeline):
-        text = "a" * 400  # 400 chars ≈ 100 tokens
-        assert pipeline._estimate_tokens(text) == 100
+        text = "a" * 400  # 400 chars ≈ 200 tokens (under conservative estimation of 2 chars/token)
+        assert pipeline._estimate_tokens(text) == 200
 
 
 class TestMemoryPipelineNormalize:

@@ -6,6 +6,10 @@ automatic .env file loading.
 """
 
 from functools import lru_cache
+from dotenv import load_dotenv, find_dotenv
+
+# Load environment variables into os.environ
+load_dotenv(find_dotenv())
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 

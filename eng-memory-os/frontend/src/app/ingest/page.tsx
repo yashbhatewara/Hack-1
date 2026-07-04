@@ -13,6 +13,7 @@ import { clsx } from 'clsx';
 const SOURCE_TYPES: { value: SourceType; label: string; emoji: string }[] = [
   { value: 'github_pr',       label: 'GitHub PR',        emoji: '🔀' },
   { value: 'github_issue',    label: 'GitHub Issue',     emoji: '🐛' },
+  { value: 'github_commit',   label: 'GitHub Commit',    emoji: '💾' },
   { value: 'adr',             label: 'ADR',              emoji: '📐' },
   { value: 'incident_report', label: 'Incident Report',  emoji: '🚨' },
   { value: 'jira_ticket',     label: 'Jira Ticket',      emoji: '🎫' },

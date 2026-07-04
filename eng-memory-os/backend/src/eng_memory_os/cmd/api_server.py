@@ -91,10 +91,12 @@ def create_app() -> FastAPI:
     from eng_memory_os.presentation.routes.memory_routes import router as memory_router
     from eng_memory_os.presentation.routes.knowledge_routes import router as knowledge_router
     from eng_memory_os.presentation.routes.system_routes import router as system_router
+    from eng_memory_os.presentation.routes.integration_routes import router as integration_router
 
     app.include_router(memory_router)
     app.include_router(knowledge_router)
     app.include_router(system_router)
+    app.include_router(integration_router)
 
     # --- WebSocket ---
     from eng_memory_os.presentation.ws.query_stream import router as ws_router

@@ -9,19 +9,21 @@ Orchestrates the full 8-stage memory processing pipeline:
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
 import structlog
 
-from eng_memory_os.domain.memory.entities import Memory
 from eng_memory_os.domain.memory.events import MemoryProcessingCompleted, MemoryProcessingFailed
-from eng_memory_os.domain.memory.repositories import MemoryRepository
 from eng_memory_os.domain.memory.value_objects import MemoryChunk, MemoryId
 from eng_memory_os.domain.shared.errors import IngestionError
 from eng_memory_os.domain.shared.types import new_entity_id
-from eng_memory_os.application.knowledge.extract_entities import ExtractEntitiesUseCase
-from eng_memory_os.infrastructure.db.vector.embedding_service import EmbeddingService
-from eng_memory_os.infrastructure.db.vector.qdrant_adapter import QdrantVectorStoreAdapter
-from eng_memory_os.infrastructure.event_bus.in_memory_bus import InMemoryEventBus
+
+if TYPE_CHECKING:
+    from eng_memory_os.application.knowledge.extract_entities import ExtractEntitiesUseCase
+    from eng_memory_os.domain.memory.repositories import MemoryRepository
+    from eng_memory_os.infrastructure.db.vector.embedding_service import EmbeddingService
+    from eng_memory_os.infrastructure.db.vector.qdrant_adapter import QdrantVectorStoreAdapter
+    from eng_memory_os.infrastructure.event_bus.in_memory_bus import InMemoryEventBus
 
 logger = structlog.get_logger(__name__)
 
@@ -29,10 +31,10 @@ logger = structlog.get_logger(__name__)
 class MemoryPipeline:
     """Orchestrates the full 8-stage memory processing pipeline."""
 
-    # Chunking parameters
-    TARGET_CHUNK_SIZE = 512  # tokens
-    CHUNK_OVERLAP = 64  # tokens overlap between chunks
-    MIN_CHUNK_SIZE = 50  # minimum tokens for a valid chunk
+    # Chunking parameters (set lower to fit safely under 512-token embedding limit)
+    TARGET_CHUNK_SIZE = 300  # tokens
+    CHUNK_OVERLAP = 40  # tokens overlap between chunks
+    MIN_CHUNK_SIZE = 30  # minimum tokens for a valid chunk
 
     def __init__(
         self,
@@ -214,7 +216,7 @@ class MemoryPipeline:
     def _split_by_sentences(
         self, text: str, memory_id: str, start_index: int
     ) -> list[MemoryChunk]:
-        """Split a large section into chunks at sentence boundaries."""
+        """Split a large section into chunks at sentence boundaries, falling back to line or chunk limits if needed."""
         # Simple sentence splitting using punctuation
         sentences = re.split(r"(?<=[.!?])\s+", text)
         chunks: list[MemoryChunk] = []
@@ -228,6 +230,48 @@ class MemoryPipeline:
                 continue
 
             s_tokens = self._estimate_tokens(sentence)
+
+            # If a single sentence exceeds target size, split it by line or raw chunk length
+            if s_tokens > self.TARGET_CHUNK_SIZE:
+                # Flush existing chunk
+                if current_text:
+                    chunks.append(self._create_chunk(memory_id, current_text, idx, current_tokens))
+                    idx += 1
+                    current_text = ""
+                    current_tokens = 0
+
+                # Split the long sentence by lines
+                lines = sentence.split("\n")
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    l_tokens = self._estimate_tokens(line)
+                    # If a single line still exceeds target, split it by raw characters
+                    if l_tokens > self.TARGET_CHUNK_SIZE:
+                        # Flush existing chunk if any
+                        if current_text:
+                            chunks.append(self._create_chunk(memory_id, current_text, idx, current_tokens))
+                            idx += 1
+                            current_text = ""
+                            current_tokens = 0
+                        # Split by max characters corresponding to TARGET_CHUNK_SIZE (approx 2 chars per token)
+                        chunk_char_limit = self.TARGET_CHUNK_SIZE * 2
+                        for i in range(0, len(line), chunk_char_limit):
+                            segment = line[i:i + chunk_char_limit]
+                            seg_tokens = self._estimate_tokens(segment)
+                            chunks.append(self._create_chunk(memory_id, segment, idx, seg_tokens))
+                            idx += 1
+                        continue
+
+                    if current_tokens + l_tokens > self.TARGET_CHUNK_SIZE and current_text:
+                        chunks.append(self._create_chunk(memory_id, current_text, idx, current_tokens))
+                        idx += 1
+                        current_text = ""
+                        current_tokens = 0
+                    current_text = f"{current_text}\n{line}".strip() if current_text else line
+                    current_tokens += l_tokens
+                continue
 
             if current_tokens + s_tokens > self.TARGET_CHUNK_SIZE and current_text:
                 chunks.append(self._create_chunk(memory_id, current_text, idx, current_tokens))
@@ -247,8 +291,9 @@ class MemoryPipeline:
         self, memory_id: str, content: str, index: int, token_count: int
     ) -> MemoryChunk:
         """Create a MemoryChunk value object."""
-        from eng_memory_os.domain.shared.types import EntityId
         import uuid
+
+        from eng_memory_os.domain.shared.types import EntityId
         return MemoryChunk(
             chunk_id=new_entity_id(),
             memory_id=EntityId(uuid.UUID(memory_id)),
@@ -272,5 +317,7 @@ class MemoryPipeline:
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:
-        """Rough token estimate: ~4 characters per token for English text."""
-        return max(1, len(text) // 4)
+        """Rough token estimate. For code/diffs, characters per token is lower.
+        We use a conservative estimate (~2 characters per token) to prevent exceeding API limits.
+        """
+        return max(1, len(text) // 2)

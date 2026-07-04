@@ -53,6 +53,7 @@ class MemorySource(enum.StrEnum):
     PULL_REQUEST = "pull_request"
     GITHUB_PR = "github_pr"
     GITHUB_ISSUE = "github_issue"
+    GITHUB_COMMIT = "github_commit"
     ARCHITECTURE_DOC = "architecture_doc"
     ADR = "adr"
     INCIDENT_REPORT = "incident_report"
