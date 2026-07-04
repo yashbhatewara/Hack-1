@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import json
 
+from eng_memory_os.cmd.config import get_settings
 from eng_memory_os.domain.gateway.entities import LLMProvider, LLMRequest
 from eng_memory_os.domain.gateway.interfaces import LLMGateway
 from eng_memory_os.infrastructure.langgraph.state import AgentState
+
+CONFIDENCE_THRESHOLD = 0.60  # Threshold for llama-3.1-8b (lower than GPT-4o's 0.85)
 
 CRITIC_SYSTEM_PROMPT = """You are a strict fact-checking critic for an engineering knowledge system.
 Evaluate the REASONING against the EVIDENCE and check for:
@@ -29,7 +32,7 @@ Return a JSON object with:
   "refined_query": "<improved query if retry is needed, or empty string>"
 }
 
-Be strict. Only assign confidence >= 0.85 if ALL claims are properly cited and accurate."""
+Be strict. Only assign confidence >= 0.60 if claims are properly cited and supported by evidence."""
 
 
 class CriticNode:
@@ -37,6 +40,7 @@ class CriticNode:
 
     def __init__(self, llm_gateway: LLMGateway) -> None:
         self._llm = llm_gateway
+        self._model = get_settings().openai_model
 
     async def __call__(self, state: AgentState) -> dict:
         reasoning = state.get("reasoning_text", "")
@@ -72,7 +76,7 @@ Evaluate the reasoning strictly against the evidence."""
 
         request = LLMRequest.create(
             provider=LLMProvider.OPENAI,
-            model="gpt-4o",
+            model=self._model,
             messages=[{"role": "user", "content": prompt}],
             system_prompt=CRITIC_SYSTEM_PROMPT,
             temperature=0.1,
@@ -98,7 +102,7 @@ Evaluate the reasoning strictly against the evidence."""
 
         # Determine if we should retry
         should_retry = (
-            (confidence < 0.85 or hallucination)
+            (confidence < CONFIDENCE_THRESHOLD or hallucination)
             and loop_count < max_loops
         )
 
@@ -108,7 +112,7 @@ Evaluate the reasoning strictly against the evidence."""
             "critic_feedback": feedback,
             "refined_query": refined if refined else state.get("query_text", ""),
             "should_retry": should_retry,
-            "is_degraded": not should_retry and confidence < 0.85,
+            "is_degraded": not should_retry and confidence < CONFIDENCE_THRESHOLD,
             "loop_count": loop_count + 1,
             "nodes_visited": ["critic"],
         }

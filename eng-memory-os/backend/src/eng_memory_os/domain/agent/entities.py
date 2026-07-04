@@ -146,7 +146,7 @@ class ReasoningResult:
 
     @property
     def is_high_confidence(self) -> bool:
-        return float(self.confidence) >= 0.85 and not self.hallucination_detected
+        return float(self.confidence) >= 0.60 and not self.hallucination_detected
 
 
 @dataclass

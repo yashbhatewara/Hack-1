@@ -133,13 +133,14 @@ class QdrantVectorStoreAdapter(VectorStoreRepository):
                 ]
             )
 
-        results = await self._client.search(
+        response = await self._client.query_points(
             collection_name=self._collection_name,
-            query_vector=query_vector,
+            query=query_vector,
             limit=limit,
             score_threshold=score_threshold,
             query_filter=query_filter,
         )
+        results = response.points
 
         chunks_with_scores: list[tuple[MemoryChunk, float]] = []
         for hit in results:

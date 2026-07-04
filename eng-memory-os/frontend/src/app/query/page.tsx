@@ -82,17 +82,18 @@ function CitationCard({ citation, index }: { citation: QueryResponse['citations'
 
   return (
     <motion.div
+      id={`citation-${citation.evidence_id}`}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05 }}
-      className="card p-3 text-sm"
+      className="card p-3 text-sm transition-all duration-500"
     >
       <div
         className="flex items-center gap-2 cursor-pointer"
         onClick={() => setExpanded(e => !e)}
       >
         <span className="font-mono text-xs text-brand-400 shrink-0">
-          [E-{citation.evidence_id.slice(0, 8)}]
+          [{index + 1}] [E-{citation.evidence_id.slice(0, 8)}]
         </span>
         <span className="text-slate-300 flex-1 truncate text-xs">{citation.source_uri}</span>
         <div className="flex items-center gap-2">
@@ -123,7 +124,75 @@ function CitationCard({ citation, index }: { citation: QueryResponse['citations'
 
 // ─── Response display ──────────────────────────────────────
 
+function FormattedResponse({ text, citations }: { text: string; citations: QueryResponse['citations'] }) {
+  // Regex to match [E-252ae284] or [E-252-ae-284]
+  const regex = /\[E-([a-f0-9\-]+)\]/gi;
+  
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match;
+  
+  while ((match = regex.exec(text)) !== null) {
+    const matchIndex = match.index;
+    const matchText = match[0];
+    const rawId = match[1].replace(/-/g, '');
+    
+    // Add text before match
+    if (matchIndex > lastIndex) {
+      parts.push(text.substring(lastIndex, matchIndex));
+    }
+    
+    // Find index of citation in citations array
+    const citationIndex = citations.findIndex(c => 
+      c.evidence_id.replace(/-/g, '').toLowerCase().startsWith(rawId.toLowerCase())
+    );
+    
+    if (citationIndex !== -1) {
+      parts.push(
+        <button
+          key={`cite-${matchIndex}`}
+          onClick={(e) => {
+            e.preventDefault();
+            const el = document.getElementById(`citation-${citations[citationIndex].evidence_id}`);
+            if (el) {
+              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              el.classList.add('ring-2', 'ring-brand-500', 'ring-offset-2', 'ring-offset-slate-900', 'scale-[1.02]');
+              setTimeout(() => {
+                el.classList.remove('ring-2', 'ring-brand-500', 'ring-offset-2', 'ring-offset-slate-900', 'scale-[1.02]');
+              }, 2000);
+            }
+          }}
+          className="inline-flex items-center justify-center w-4 h-4 ml-1 text-[9px] font-bold font-mono rounded bg-brand-500/20 text-brand-300 hover:bg-brand-500/40 hover:text-white transition-all border border-brand-500/30 cursor-pointer align-super select-none"
+          title={citations[citationIndex].source_uri}
+        >
+          {citationIndex + 1}
+        </button>
+      );
+    } else {
+      // Just keep as superscript star if not found
+      parts.push(<span key={`cite-raw-${matchIndex}`} className="text-slate-500 text-[10px] align-super">*</span>);
+    }
+    
+    lastIndex = regex.lastIndex;
+  }
+  
+  if (lastIndex < text.length) {
+    parts.push(text.substring(lastIndex));
+  }
+  
+  return (
+    <div className="text-sm text-slate-200 whitespace-pre-wrap leading-7 font-sans">
+      {parts.length > 0 ? parts : text}
+    </div>
+  );
+}
+
 function ResponsePanel({ response }: { response: QueryResponse }) {
+  // Strip any trailing [number] or [E-xxx] leftovers from LLM responses
+  const cleanResponseText = response.response_text
+    .replace(/\s*\[\d+\]\s*$/g, '')
+    .replace(/\[\d+\]/g, '');
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -154,7 +223,7 @@ function ResponsePanel({ response }: { response: QueryResponse }) {
         <div
           className={clsx(
             'confidence-fill',
-            response.confidence >= 0.85
+            response.confidence >= 0.60
               ? 'bg-gradient-to-r from-accent-green to-accent-cyan'
               : 'bg-gradient-to-r from-accent-orange to-accent-red'
           )}
@@ -164,9 +233,7 @@ function ResponsePanel({ response }: { response: QueryResponse }) {
 
       {/* Response text */}
       <div className="card p-5">
-        <pre className="text-sm text-slate-200 whitespace-pre-wrap leading-7 font-sans">
-          {response.response_text}
-        </pre>
+        <FormattedResponse text={cleanResponseText} citations={response.citations} />
       </div>
 
       {/* Citations */}

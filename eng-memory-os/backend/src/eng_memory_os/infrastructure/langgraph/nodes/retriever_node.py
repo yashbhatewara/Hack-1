@@ -8,18 +8,19 @@ using the composite evidence ranking algorithm.
 from __future__ import annotations
 
 import asyncio
-import uuid
+from typing import TYPE_CHECKING
 
 import structlog
 
-from eng_memory_os.domain.knowledge.repositories import (
-    KnowledgeGraphRepository,
-    VectorStoreRepository,
-)
-from eng_memory_os.domain.knowledge.value_objects import NodeId
-from eng_memory_os.infrastructure.db.vector.embedding_service import EmbeddingService
-from eng_memory_os.infrastructure.langgraph.state import AgentState
 from eng_memory_os.infrastructure.langgraph.evidence_ranker import EvidenceRanker
+
+if TYPE_CHECKING:
+    from eng_memory_os.domain.knowledge.repositories import (
+        KnowledgeGraphRepository,
+        VectorStoreRepository,
+    )
+    from eng_memory_os.infrastructure.db.vector.embedding_service import EmbeddingService
+    from eng_memory_os.infrastructure.langgraph.state import AgentState
 
 logger = structlog.get_logger(__name__)
 
@@ -94,7 +95,7 @@ class RetrieverNode:
             results = await self._vector_store.search_similar(
                 query_vector=query_vector,
                 limit=10,
-                score_threshold=0.5,
+                score_threshold=0.3,
             )
             return [
                 {

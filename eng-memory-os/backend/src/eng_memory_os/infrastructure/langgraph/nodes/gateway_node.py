@@ -7,6 +7,7 @@ to route downstream processing.
 
 from __future__ import annotations
 
+from eng_memory_os.cmd.config import get_settings
 from eng_memory_os.domain.gateway.entities import LLMProvider, LLMRequest
 from eng_memory_os.domain.gateway.interfaces import LLMGateway
 from eng_memory_os.infrastructure.langgraph.state import AgentState
@@ -30,13 +31,14 @@ class GatewayNode:
 
     def __init__(self, llm_gateway: LLMGateway) -> None:
         self._llm = llm_gateway
+        self._model = get_settings().openai_model
 
     async def __call__(self, state: AgentState) -> dict:
         query_text = state.get("query_text", "")
 
         request = LLMRequest.create(
             provider=LLMProvider.OPENAI,
-            model="gpt-4o",
+            model=self._model,
             messages=[{"role": "user", "content": query_text}],
             system_prompt=INTENT_SYSTEM_PROMPT,
             temperature=0.0,

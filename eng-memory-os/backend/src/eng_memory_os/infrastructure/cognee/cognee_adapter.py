@@ -7,8 +7,8 @@ along with NetworkX for graph operations (PageRank, centrality).
 
 from __future__ import annotations
 
-import uuid
 from difflib import SequenceMatcher
+from typing import TYPE_CHECKING
 
 import networkx as nx
 import structlog
@@ -24,13 +24,11 @@ from eng_memory_os.domain.knowledge.repositories import (
     GraphStats,
     KnowledgeGraphRepository,
 )
-from eng_memory_os.domain.knowledge.value_objects import (
-    EdgeId,
-    EntityMention,
-    GraphPosition,
-    NodeId,
-)
-from eng_memory_os.domain.shared.types import EntityId, Timestamp, now_utc
+
+if TYPE_CHECKING:
+    from eng_memory_os.domain.knowledge.value_objects import (
+        NodeId,
+    )
 
 logger = structlog.get_logger(__name__)
 
@@ -113,9 +111,7 @@ class CogneeGraphAdapter(KnowledgeGraphRepository):
             if fuzzy:
                 # Fuzzy matching using sequence similarity
                 similarity = SequenceMatcher(None, name_lower, node.name.lower()).ratio()
-                if similarity >= 0.7:
-                    results.append(node)
-                elif any(
+                if similarity >= 0.7 or any(
                     SequenceMatcher(None, name_lower, alias.lower()).ratio() >= 0.7
                     for alias in node.aliases
                 ):
@@ -255,7 +251,18 @@ class CogneeGraphAdapter(KnowledgeGraphRepository):
             return {}
 
         try:
-            scores = nx.pagerank(self._graph, alpha=0.85, max_iter=100)
+            # Try scipy-backed pagerank first (faster for large graphs),
+            # fall back to pure-Python implementation if scipy is not installed.
+            try:
+                scores = nx.pagerank_scipy(self._graph, alpha=0.85, max_iter=100)
+            except AttributeError:
+                # networkx >= 3.3 removed pagerank_scipy; use pagerank directly
+                scores = nx.pagerank(self._graph, alpha=0.85, max_iter=100)
+            except Exception:
+                # scipy not available — use pure-Python implementation
+                scores = nx.pagerank(self._graph, alpha=0.85, max_iter=100,
+                                     nstart=None, weight="weight", dangling=None)
+
             # Update node objects
             for nid, score in scores.items():
                 node = self._nodes.get(str(nid))
@@ -264,9 +271,13 @@ class CogneeGraphAdapter(KnowledgeGraphRepository):
 
             logger.info("pagerank_computed", node_count=len(scores))
             return {str(k): v for k, v in scores.items()}
-        except nx.PowerIterationFailedConvergence:
-            logger.warning("pagerank_convergence_failed")
-            return {}
+        except Exception as e:
+            logger.warning("pagerank_computation_failed", error=str(e))
+            # Last-resort uniform fallback
+            fallback_score = 1.0 / len(self._graph) if len(self._graph) > 0 else 0.0
+            for node in self._nodes.values():
+                node.pagerank_score = fallback_score
+            return {str(nid): fallback_score for nid in self._graph.nodes}
 
     async def compute_degree_centrality(self) -> dict[str, float]:
         """Compute degree centrality using NetworkX."""

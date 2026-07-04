@@ -7,6 +7,7 @@ producing a reasoning text with inline citations.
 
 from __future__ import annotations
 
+from eng_memory_os.cmd.config import get_settings
 from eng_memory_os.domain.gateway.entities import LLMProvider, LLMRequest
 from eng_memory_os.domain.gateway.interfaces import LLMGateway
 from eng_memory_os.infrastructure.langgraph.state import AgentState
@@ -32,6 +33,7 @@ class ReasonerNode:
 
     def __init__(self, llm_gateway: LLMGateway) -> None:
         self._llm = llm_gateway
+        self._model = get_settings().openai_model
 
     async def __call__(self, state: AgentState) -> dict:
         query_text = state.get("query_text", "")
@@ -55,7 +57,7 @@ Based ONLY on the above evidence, provide a comprehensive answer with inline cit
 
         request = LLMRequest.create(
             provider=LLMProvider.OPENAI,
-            model="gpt-4o",
+            model=self._model,
             messages=[{"role": "user", "content": prompt}],
             system_prompt=REASONER_SYSTEM_PROMPT,
             temperature=0.3,
@@ -81,10 +83,10 @@ Based ONLY on the above evidence, provide a comprehensive answer with inline cit
         """Format evidence list into a readable block for the LLM."""
         lines = ["EVIDENCE:"]
         for e in evidence[:15]:  # Limit to top 15 to stay within context
-            eid = e.get("evidence_id", "unknown")[:8]
+            eid = (e.get("evidence_id") or "unknown")[:8]
             source = e.get("source", "unknown")
             score = e.get("final_score", e.get("similarity_score", 0))
-            content = e.get("content", e.get("description", ""))[:500]
+            content = (e.get("content") or e.get("description") or "")[:500]
             lines.append(f"[E-{eid}] (source: {source}, score: {score:.2f}): {content}")
         return "\n".join(lines)
 
