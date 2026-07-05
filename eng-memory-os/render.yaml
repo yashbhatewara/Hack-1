@@ -1,0 +1,91 @@
+services:
+  # 1. FastAPI API Server
+  - type: web
+    name: emo-backend
+    runtime: docker
+    dockerfilePath: deploy/Dockerfile.backend
+    dockerContext: backend
+    plan: free
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: emo-postgres
+          property: connectionString
+      - key: QDRANT_HOST
+        value: your-qdrant-cluster-url-here.cloud.qdrant.io
+      - key: QDRANT_PORT
+        value: 6333
+      - key: QDRANT_API_KEY
+        value: your-qdrant-api-key
+      - key: COGNEE_GRAPH_BACKEND
+        value: networkx
+      - key: COGNEE_BASE_URL
+        value: https://tenant-0c77df18-9c44-4585-a654-f45d970623a3.aws.cognee.ai
+      - key: COGNEE_API_KEY
+        value: 018f8010410ca23906ffd325f5b8f75b12223da1bebba8a4dec5fb5c2d13c32f
+      - key: LLM_PRIMARY_PROVIDER
+        value: openai
+      - key: LLM_FALLBACK_PROVIDER
+        value: anthropic
+      - key: OPENAI_API_KEY
+        value: your-openai-key
+      - key: OPENAI_MODEL
+        value: meta/llama-3.1-8b-instruct
+      - key: OPENAI_EMBEDDING_MODEL
+        value: nvidia/nv-embedqa-e5-v5
+      - key: OPENAI_EMBEDDING_DIMENSION
+        value: "1024"
+      - key: NVIDIA_API_KEY
+        value: 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
+
+  # 2. Background Task Worker
+  - type: worker
+    name: emo-worker
+    runtime: docker
+    dockerfilePath: deploy/Dockerfile.backend
+    dockerContext: backend
+    plan: free
+    dockerCommand: python -m eng_memory_os.cmd.worker
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: emo-postgres
+          property: connectionString
+      - key: QDRANT_HOST
+        value: your-qdrant-cluster-url-here.cloud.qdrant.io
+      - key: QDRANT_PORT
+        value: 6333
+      - key: QDRANT_API_KEY
+        value: your-qdrant-api-key
+      - key: COGNEE_GRAPH_BACKEND
+        value: networkx
+      - key: COGNEE_BASE_URL
+        value: https://tenant-0c77df18-9c44-4585-a654-f45d970623a3.aws.cognee.ai
+      - key: COGNEE_API_KEY
+        value: 018f8010410ca23906ffd325f5b8f75b12223da1bebba8a4dec5fb5c2d13c32f
+      - key: LLM_PRIMARY_PROVIDER
+        value: openai
+      - key: LLM_FALLBACK_PROVIDER
+        value: anthropic
+      - key: OPENAI_API_KEY
+        value: your-openai-key
+      - key: OPENAI_MODEL
+        value: meta/llama-3.1-8b-instruct
+      - key: OPENAI_EMBEDDING_MODEL
+        value: nvidia/nv-embedqa-e5-v5
+      - key: OPENAI_EMBEDDING_DIMENSION
+        value: "1024"
+      - key: NVIDIA_API_KEY
+        value: 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
+
+databases:
+  - name: emo-postgres
+    plan: free
