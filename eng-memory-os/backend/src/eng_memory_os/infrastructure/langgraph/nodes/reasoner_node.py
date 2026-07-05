@@ -15,7 +15,7 @@ from eng_memory_os.infrastructure.langgraph.state import AgentState
 REASONER_SYSTEM_PROMPT = """You are a reasoning engine for an engineering knowledge system.
 You MUST synthesize an answer ONLY from the provided evidence. Follow these rules strictly:
 
-1. EVERY claim must include an inline citation in the format [E-<id>] using the evidence_id.
+1. Do NOT include any inline citations, source references, or mention evidence IDs (like [E-xxx] or E-<id>) in your response. Write a clean, natural response without citing any sources.
 2. If the evidence is insufficient, explicitly state "I do not have historical data on this."
 3. Do NOT invent or hallucinate information that is not in the evidence.
 4. Structure your answer clearly with sections if the topic is complex.
@@ -25,7 +25,7 @@ You will receive evidence in this format:
 EVIDENCE:
 [E-<id>] (source: <source>, score: <score>): <content>
 
-Synthesize a comprehensive, well-cited answer."""
+Synthesize a comprehensive, clean, natural answer without citing any sources."""
 
 
 class ReasonerNode:

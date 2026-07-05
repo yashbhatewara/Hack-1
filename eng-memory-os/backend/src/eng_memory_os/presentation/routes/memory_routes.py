@@ -105,17 +105,37 @@ async def query_memories(
     request = QueryMemoryRequest(
         query_text=body.query,
         user_id="api-user",  # TODO: Extract from JWT when auth is wired
+        mode=body.mode,
     )
 
     result = await use_case.execute(request)
 
+    # Persist the query log in the database
+    try:
+        from eng_memory_os.presentation.dependencies import get_db_session
+        from eng_memory_os.infrastructure.db.postgres_query_log_repository import PostgresQueryLogRepository
+        async with get_db_session() as session:
+            repo = PostgresQueryLogRepository(session)
+            await repo.save(
+                user_id_str="api-user",
+                raw_query=body.query,
+                classified_intent=body.mode,
+                response_text=result.response_text,
+                confidence=result.confidence,
+                is_degraded=result.is_degraded,
+                total_time_ms=result.total_time_ms,
+                retry_count=result.retry_count,
+            )
+    except Exception as e:
+        logger.warning("query_log_persist_failed", error=str(e))
+
     citations = [
         CitationDTO(
-            evidence_id=c.get("evidence_id", ""),
-            memory_id=c.get("memory_id", ""),
-            source_uri=c.get("source_uri", ""),
-            relevance_score=c.get("relevance_score", 0.0),
-            snippet=c.get("snippet", ""),
+            evidence_id=c["evidence_id"],
+            memory_id=c["memory_id"],
+            source_uri=c["source_uri"],
+            relevance_score=c["relevance_score"],
+            snippet=c["snippet"],
         )
         for c in result.citations
     ]
@@ -131,6 +151,31 @@ async def query_memories(
     )
 
 
+# ──────────────────── GET /memories/query/history ────────────────────
+
+@router.get(
+    "/query/history",
+    summary="Get recent query history for the user",
+    description="Returns a list of the most recent queries asked by the user.",
+)
+async def query_history(
+    limit: int = Query(100, ge=1, le=500),
+):
+    try:
+        from eng_memory_os.presentation.dependencies import get_db_session
+        from eng_memory_os.infrastructure.db.postgres_query_log_repository import PostgresQueryLogRepository
+        async with get_db_session() as session:
+            repo = PostgresQueryLogRepository(session)
+            history = await repo.list_history(user_id_str="api-user", limit=limit)
+            return history
+    except Exception as e:
+        logger.exception("get_query_history_failed", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve query history: {e}",
+        )
+
+
 # ──────────────────── GET /memories ────────────────────
 
 @router.get(
@@ -142,7 +187,7 @@ async def query_memories(
 async def list_memories(
     status_filter: MemoryStatusDTO | None = Query(None, alias="status", description="Filter by status"),
     author: str | None = Query(None, description="Filter by author"),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     memory_repo=Depends(get_memory_repo),
 ):
@@ -253,6 +298,18 @@ async def get_memory_stats(
     counts = await memory_repo.count_by_status()
     total = sum(counts.values())
 
+    # Count total queries from database
+    total_queries = 0
+    try:
+        from sqlalchemy import select, func
+        from eng_memory_os.infrastructure.db.models import QueryLogModel
+        from eng_memory_os.presentation.dependencies import get_db_session
+        async with get_db_session() as session:
+            result = await session.execute(select(func.count(QueryLogModel.id)))
+            total_queries = result.scalar() or 0
+    except Exception:
+        logger.exception("failed_to_count_query_logs")
+
     return MemoryStatsDTO(
         pending=counts.get(MemoryStatus.PENDING, 0),
         processing=counts.get(MemoryStatus.PROCESSING, 0),
@@ -261,4 +318,5 @@ async def get_memory_stats(
         archived=counts.get(MemoryStatus.ARCHIVED, 0),
         failed=counts.get(MemoryStatus.FAILED, 0),
         total=total,
+        total_queries=total_queries,
     )

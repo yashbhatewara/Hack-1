@@ -6,7 +6,7 @@ import {
   Send, Loader2, Brain, CheckCircle, AlertTriangle, ChevronDown, ChevronUp,
   Clock, Repeat, Zap, FileText,
 } from 'lucide-react';
-import { createQueryWebSocket, type QueryResponse } from '@/lib/api';
+import { createQueryWebSocket, memoryApi, type QueryResponse } from '@/lib/api';
 import { clsx } from 'clsx';
 
 // ─── Types ────────────────────────────────────────────────
@@ -124,65 +124,12 @@ function CitationCard({ citation, index }: { citation: QueryResponse['citations'
 
 // ─── Response display ──────────────────────────────────────
 
-function FormattedResponse({ text, citations }: { text: string; citations: QueryResponse['citations'] }) {
-  // Regex to match [E-252ae284] or [E-252-ae-284]
-  const regex = /\[E-([a-f0-9\-]+)\]/gi;
-  
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-  let match;
-  
-  while ((match = regex.exec(text)) !== null) {
-    const matchIndex = match.index;
-    const matchText = match[0];
-    const rawId = match[1].replace(/-/g, '');
-    
-    // Add text before match
-    if (matchIndex > lastIndex) {
-      parts.push(text.substring(lastIndex, matchIndex));
-    }
-    
-    // Find index of citation in citations array
-    const citationIndex = citations.findIndex(c => 
-      c.evidence_id.replace(/-/g, '').toLowerCase().startsWith(rawId.toLowerCase())
-    );
-    
-    if (citationIndex !== -1) {
-      parts.push(
-        <button
-          key={`cite-${matchIndex}`}
-          onClick={(e) => {
-            e.preventDefault();
-            const el = document.getElementById(`citation-${citations[citationIndex].evidence_id}`);
-            if (el) {
-              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              el.classList.add('ring-2', 'ring-brand-500', 'ring-offset-2', 'ring-offset-slate-900', 'scale-[1.02]');
-              setTimeout(() => {
-                el.classList.remove('ring-2', 'ring-brand-500', 'ring-offset-2', 'ring-offset-slate-900', 'scale-[1.02]');
-              }, 2000);
-            }
-          }}
-          className="inline-flex items-center justify-center w-4 h-4 ml-1 text-[9px] font-bold font-mono rounded bg-brand-500/20 text-brand-300 hover:bg-brand-500/40 hover:text-white transition-all border border-brand-500/30 cursor-pointer align-super select-none"
-          title={citations[citationIndex].source_uri}
-        >
-          {citationIndex + 1}
-        </button>
-      );
-    } else {
-      // Just keep as superscript star if not found
-      parts.push(<span key={`cite-raw-${matchIndex}`} className="text-slate-500 text-[10px] align-super">*</span>);
-    }
-    
-    lastIndex = regex.lastIndex;
-  }
-  
-  if (lastIndex < text.length) {
-    parts.push(text.substring(lastIndex));
-  }
-  
+function FormattedResponse({ text }: { text: string }) {
+  // Strip any leftover [E-xxx] inline citation placeholders
+  const cleanText = text.replace(/\[E-[a-f0-9\-]+\]/gi, '').trim();
   return (
     <div className="text-sm text-slate-200 whitespace-pre-wrap leading-7 font-sans">
-      {parts.length > 0 ? parts : text}
+      {cleanText}
     </div>
   );
 }
@@ -233,18 +180,18 @@ function ResponsePanel({ response }: { response: QueryResponse }) {
 
       {/* Response text */}
       <div className="card p-5">
-        <FormattedResponse text={cleanResponseText} citations={response.citations} />
+        <FormattedResponse text={cleanResponseText} />
       </div>
 
       {/* Citations */}
-      {response.citations.length > 0 && (
+      {response.citations && response.citations.length > 0 && (
         <div className="space-y-2">
           <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
             <FileText className="w-3.5 h-3.5" />
             Evidence Sources ({response.citations.length})
           </h4>
           {response.citations.map((c, i) => (
-            <CitationCard key={c.evidence_id} citation={c} index={i} />
+            <CitationCard key={c.evidence_id || i} citation={c} index={i} />
           ))}
         </div>
       )}
@@ -256,13 +203,28 @@ function ResponsePanel({ response }: { response: QueryResponse }) {
 
 export default function QueryPage() {
   const [query, setQuery] = useState('');
+  const [mode, setMode] = useState<'agent' | 'rag'>('agent');
   const [isStreaming, setIsStreaming] = useState(false);
   const [steps, setSteps] = useState<ProgressStep[]>([]);
   const [currentNode, setCurrentNode] = useState<string | null>(null);
   const [response, setResponse] = useState<QueryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<any[]>([]);
   const wsRef = useRef<ReturnType<typeof createQueryWebSocket> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const fetchHistory = useCallback(async () => {
+    try {
+      const data = await memoryApi.history(10);
+      setHistory(data);
+    } catch (err) {
+      console.error('Failed to fetch query history:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
 
   // Cleanup WS on unmount
   useEffect(() => () => wsRef.current?.close(), []);
@@ -290,6 +252,7 @@ export default function QueryPage() {
         setResponse(data);
         setIsStreaming(false);
         setCurrentNode(null);
+        fetchHistory();
       },
       (detail) => {
         setError(detail);
@@ -300,9 +263,9 @@ export default function QueryPage() {
 
     // Wait for WS connection
     setTimeout(() => {
-      wsRef.current?.send(query.trim());
+      wsRef.current?.send(query.trim(), mode);
     }, 300);
-  }, [query, isStreaming]);
+  }, [query, isStreaming, mode]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit();
@@ -339,7 +302,7 @@ export default function QueryPage() {
           className="textarea"
           disabled={isStreaming}
         />
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex flex-wrap gap-2">
             {EXAMPLE_QUERIES.map(q => (
               <button
@@ -352,16 +315,52 @@ export default function QueryPage() {
               </button>
             ))}
           </div>
-          <button
-            onClick={handleSubmit}
-            disabled={!query.trim() || isStreaming}
-            className="btn-primary shrink-0"
-          >
-            {isStreaming
-              ? <><Loader2 className="w-4 h-4 animate-spin" /> Thinking…</>
-              : <><Send className="w-4 h-4" /> Ask</>
-            }
-          </button>
+          <div className="flex items-center gap-3 self-end sm:self-auto shrink-0">
+            {/* Mode Switcher */}
+            <div className="flex items-center gap-1 border border-surface-border rounded-lg p-0.5 bg-surface-dark select-none">
+              <button
+                onClick={() => setMode('agent')}
+                disabled={isStreaming}
+                className={clsx(
+                  "text-[10px] sm:text-xs px-2.5 py-1 rounded-md transition-all font-medium flex items-center gap-1",
+                  mode === 'agent'
+                    ? "bg-brand-500 text-white shadow-sm font-semibold"
+                    : "text-slate-400 hover:text-white hover:bg-white/5",
+                  isStreaming && "opacity-50 cursor-not-allowed"
+                )}
+                title="Deep multi-agent verification and reasoning loop"
+              >
+                <Brain className="w-3 h-3" />
+                Agentic
+              </button>
+              <button
+                onClick={() => setMode('rag')}
+                disabled={isStreaming}
+                className={clsx(
+                  "text-[10px] sm:text-xs px-2.5 py-1 rounded-md transition-all font-medium flex items-center gap-1",
+                  mode === 'rag'
+                    ? "bg-brand-500 text-white shadow-sm font-semibold"
+                    : "text-slate-400 hover:text-white hover:bg-white/5",
+                  isStreaming && "opacity-50 cursor-not-allowed"
+                )}
+                title="Fast hybrid RAG synthesis (under 2s)"
+              >
+                <Zap className="w-3 h-3" />
+                Fast RAG
+              </button>
+            </div>
+
+            <button
+              onClick={handleSubmit}
+              disabled={!query.trim() || isStreaming}
+              className="btn-primary"
+            >
+              {isStreaming
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Thinking…</>
+                : <><Send className="w-4 h-4" /> Ask</>
+              }
+            </button>
+          </div>
         </div>
         <p className="text-xs text-slate-500">⌘ + Enter to submit</p>
       </div>
@@ -403,6 +402,59 @@ export default function QueryPage() {
             </div>
           )}
         </div>
+
+        {/* Query History Sidebar */}
+        {history.length > 0 && (
+          <div className="w-60 shrink-0 flex flex-col gap-3 border-l border-surface-border pl-5 hidden md:flex">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              <Clock className="w-3.5 h-3.5" />
+              Recent Queries
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 select-none">
+              {history.map((h) => (
+                <button
+                  key={h.id}
+                  onClick={() => {
+                    setQuery(h.raw_query);
+                    setMode(h.classified_intent as 'agent' | 'rag');
+                    setResponse({
+                      response_id: h.id,
+                      response_text: h.response_text,
+                      confidence: h.confidence,
+                      is_degraded: h.is_degraded,
+                      citations: [],
+                      total_time_ms: h.total_time_ms,
+                      retry_count: h.retry_count,
+                    });
+                    setSteps([]);
+                    setError(null);
+                  }}
+                  className="w-full text-left card p-2.5 hover:border-brand-500/50 transition-all text-xs flex flex-col gap-1.5 bg-surface-dark/40"
+                >
+                  <span className="text-slate-200 line-clamp-2 font-medium">
+                    {h.raw_query}
+                  </span>
+                  <div className="flex items-center justify-between text-[10px] text-slate-500">
+                    <span className="flex items-center gap-1">
+                      {h.classified_intent === 'rag' ? (
+                        <Zap className="w-2.5 h-2.5 text-brand-400" />
+                      ) : (
+                        <Brain className="w-2.5 h-2.5 text-brand-400" />
+                      )}
+                      {h.classified_intent === 'rag' ? 'RAG' : 'Agentic'}
+                    </span>
+                    <span>
+                      {new Date(h.created_at).toLocaleDateString([], {
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

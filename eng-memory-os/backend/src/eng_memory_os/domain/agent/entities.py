@@ -182,15 +182,10 @@ class AgentResponse:
         nodes_visited: list[str],
     ) -> AgentResponse:
         """Create a degraded response when confidence threshold is not met."""
-        disclaimer = (
-            "\n\n⚠️ **Note:** I do not have sufficient historical data to fully "
-            "answer this question with high confidence. The above is based on "
-            "limited evidence and should be independently verified."
-        )
         return cls(
             id=new_entity_id(),
             query_id=query_id,
-            response_text=partial_text + disclaimer,
+            response_text=partial_text,
             confidence=ConfidenceScore(0.0),
             citations=citations,
             is_degraded=True,

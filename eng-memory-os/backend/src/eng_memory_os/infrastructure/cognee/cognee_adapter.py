@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from difflib import SequenceMatcher
 from typing import TYPE_CHECKING
+import uuid
 
 import networkx as nx
 import structlog
@@ -24,11 +25,15 @@ from eng_memory_os.domain.knowledge.repositories import (
     GraphStats,
     KnowledgeGraphRepository,
 )
+from eng_memory_os.domain.knowledge.value_objects import (
+    NodeId,
+    EdgeId,
+    GraphPosition,
+)
+from eng_memory_os.domain.shared.types import Timestamp
 
 if TYPE_CHECKING:
-    from eng_memory_os.domain.knowledge.value_objects import (
-        NodeId,
-    )
+    from eng_memory_os.infrastructure.db.connection import DatabaseSessionManager
 
 logger = structlog.get_logger(__name__)
 
@@ -45,10 +50,85 @@ class CogneeGraphAdapter(KnowledgeGraphRepository):
     - Persistent, semantically-rich knowledge graph (Cognee)
     """
 
-    def __init__(self) -> None:
+    def __init__(self, db_manager: DatabaseSessionManager | None = None) -> None:
+        self._db_manager = db_manager
         self._graph = nx.DiGraph()
         self._nodes: dict[str, KnowledgeNode] = {}
         self._edges: dict[str, KnowledgeEdge] = {}
+
+    async def load_graph(self) -> None:
+        """Load all nodes and edges from the PostgreSQL database into memory."""
+        if not self._db_manager:
+            logger.warning("database_manager_not_set_cannot_load_graph")
+            return
+
+        try:
+            from sqlalchemy import select
+            from eng_memory_os.infrastructure.db.models import KnowledgeNodeModel, KnowledgeEdgeModel
+
+            async with self._db_manager.session() as session:
+                # Load all nodes
+                nodes_result = await session.execute(select(KnowledgeNodeModel))
+                node_models = nodes_result.scalars().all()
+
+                for nm in node_models:
+                    node = KnowledgeNode(
+                        id=NodeId.from_str(str(nm.id)),
+                        entity_type=EntityType(nm.entity_type),
+                        name=nm.name,
+                        description=nm.description,
+                        properties=nm.properties or {},
+                        source_memory_ids=nm.source_memory_ids or [],
+                        mentions=[],
+                        pagerank_score=nm.pagerank_score,
+                        degree_centrality=nm.degree_centrality,
+                        position=GraphPosition(nm.position_x, nm.position_y),
+                        created_at=Timestamp(nm.created_at),
+                        updated_at=Timestamp(nm.updated_at),
+                        aliases=nm.aliases or [],
+                    )
+                    node_id = str(node.id)
+                    self._nodes[node_id] = node
+                    self._graph.add_node(
+                        node_id,
+                        entity_type=node.entity_type.value,
+                        name=node.name,
+                        description=node.description,
+                    )
+
+                # Load all edges
+                edges_result = await session.execute(select(KnowledgeEdgeModel))
+                edge_models = edges_result.scalars().all()
+
+                for em in edge_models:
+                    edge = KnowledgeEdge(
+                        id=EdgeId.from_str(str(em.id)),
+                        source_node_id=NodeId.from_str(str(em.source_node_id)),
+                        target_node_id=NodeId.from_str(str(em.target_node_id)),
+                        relationship_type=RelationshipType(em.relationship_type),
+                        weight=em.weight,
+                        description=em.description,
+                        source_memory_ids=em.source_memory_ids or [],
+                        created_at=Timestamp(em.created_at),
+                        updated_at=Timestamp(em.updated_at),
+                    )
+                    edge_id = str(edge.id)
+                    self._edges[edge_id] = edge
+                    self._graph.add_edge(
+                        str(edge.source_node_id),
+                        str(edge.target_node_id),
+                        edge_id=edge_id,
+                        relationship_type=edge.relationship_type.value,
+                        weight=edge.weight,
+                    )
+
+            logger.info(
+                "knowledge_graph_loaded",
+                node_count=len(self._nodes),
+                edge_count=len(self._edges),
+            )
+        except Exception as e:
+            logger.error("failed_to_load_knowledge_graph", error=str(e))
 
     async def save_node(self, node: KnowledgeNode) -> None:
         """Persist a knowledge node (upsert)."""
@@ -64,6 +144,45 @@ class CogneeGraphAdapter(KnowledgeGraphRepository):
         )
 
         logger.debug("node_saved", node_id=node_id, name=node.name, type=node.entity_type.value)
+
+        # Persist to database if available
+        if self._db_manager:
+            try:
+                from eng_memory_os.infrastructure.db.models import KnowledgeNodeModel
+                async with self._db_manager.session() as session:
+                    existing = await session.get(KnowledgeNodeModel, node.id.value)
+                    if existing:
+                        existing.entity_type = node.entity_type.value
+                        existing.name = node.name
+                        existing.description = node.description
+                        existing.properties = node.properties
+                        existing.source_memory_ids = node.source_memory_ids
+                        existing.aliases = node.aliases
+                        existing.pagerank_score = node.pagerank_score
+                        existing.degree_centrality = node.degree_centrality
+                        existing.position_x = node.position.x
+                        existing.position_y = node.position.y
+                        existing.updated_at = node.updated_at
+                    else:
+                        model = KnowledgeNodeModel(
+                            id=node.id.value,
+                            entity_type=node.entity_type.value,
+                            name=node.name,
+                            description=node.description,
+                            properties=node.properties,
+                            source_memory_ids=node.source_memory_ids,
+                            aliases=node.aliases,
+                            pagerank_score=node.pagerank_score,
+                            degree_centrality=node.degree_centrality,
+                            position_x=node.position.x,
+                            position_y=node.position.y,
+                            created_at=node.created_at,
+                            updated_at=node.updated_at,
+                        )
+                        session.add(model)
+                    await session.commit()
+            except Exception as e:
+                logger.error("database_save_node_failed", node_id=node_id, error=str(e))
 
     async def save_edge(self, edge: KnowledgeEdge) -> None:
         """Persist a knowledge edge (upsert)."""
@@ -89,6 +208,37 @@ class CogneeGraphAdapter(KnowledgeGraphRepository):
             target=tgt,
             type=edge.relationship_type.value,
         )
+
+        # Persist to database if available
+        if self._db_manager:
+            try:
+                from eng_memory_os.infrastructure.db.models import KnowledgeEdgeModel
+                async with self._db_manager.session() as session:
+                    existing = await session.get(KnowledgeEdgeModel, edge.id.value)
+                    if existing:
+                        existing.source_node_id = edge.source_node_id.value
+                        existing.target_node_id = edge.target_node_id.value
+                        existing.relationship_type = edge.relationship_type.value
+                        existing.weight = edge.weight
+                        existing.description = edge.description
+                        existing.source_memory_ids = edge.source_memory_ids
+                        existing.updated_at = edge.updated_at
+                    else:
+                        model = KnowledgeEdgeModel(
+                            id=edge.id.value,
+                            source_node_id=edge.source_node_id.value,
+                            target_node_id=edge.target_node_id.value,
+                            relationship_type=edge.relationship_type.value,
+                            weight=edge.weight,
+                            description=edge.description,
+                            source_memory_ids=edge.source_memory_ids,
+                            created_at=edge.created_at,
+                            updated_at=edge.updated_at,
+                        )
+                        session.add(model)
+                    await session.commit()
+            except Exception as e:
+                logger.error("database_save_edge_failed", edge_id=edge_id, error=str(e))
 
     async def get_node_by_id(self, node_id: NodeId) -> KnowledgeNode | None:
         return self._nodes.get(str(node_id))
@@ -243,6 +393,26 @@ class CogneeGraphAdapter(KnowledgeGraphRepository):
 
         # Remove node
         del self._nodes[nid]
+
+        # Persist deletion to database
+        if self._db_manager:
+            try:
+                from sqlalchemy import delete
+                from eng_memory_os.infrastructure.db.models import KnowledgeNodeModel, KnowledgeEdgeModel
+                async with self._db_manager.session() as session:
+                    await session.execute(
+                        delete(KnowledgeNodeModel).where(KnowledgeNodeModel.id == node_id.value)
+                    )
+                    await session.execute(
+                        delete(KnowledgeEdgeModel).where(
+                            (KnowledgeEdgeModel.source_node_id == node_id.value) |
+                            (KnowledgeEdgeModel.target_node_id == node_id.value)
+                        )
+                    )
+                    await session.commit()
+            except Exception as e:
+                logger.error("database_delete_node_failed", node_id=nid, error=str(e))
+
         return True
 
     async def compute_pagerank(self) -> dict[str, float]:
@@ -269,6 +439,22 @@ class CogneeGraphAdapter(KnowledgeGraphRepository):
                 if node:
                     node.pagerank_score = score
 
+            # Persist to database
+            if self._db_manager:
+                try:
+                    from sqlalchemy import update
+                    from eng_memory_os.infrastructure.db.models import KnowledgeNodeModel
+                    async with self._db_manager.session() as session:
+                        for nid, score in scores.items():
+                            await session.execute(
+                                update(KnowledgeNodeModel)
+                                .where(KnowledgeNodeModel.id == uuid.UUID(nid))
+                                .values(pagerank_score=score)
+                            )
+                        await session.commit()
+                except Exception as db_err:
+                    logger.error("failed_to_update_pagerank_in_db", error=str(db_err))
+
             logger.info("pagerank_computed", node_count=len(scores))
             return {str(k): v for k, v in scores.items()}
         except Exception as e:
@@ -289,6 +475,22 @@ class CogneeGraphAdapter(KnowledgeGraphRepository):
             node = self._nodes.get(str(nid))
             if node:
                 node.degree_centrality = score
+
+        # Persist to database
+        if self._db_manager:
+            try:
+                from sqlalchemy import update
+                from eng_memory_os.infrastructure.db.models import KnowledgeNodeModel
+                async with self._db_manager.session() as session:
+                    for nid, score in scores.items():
+                        await session.execute(
+                            update(KnowledgeNodeModel)
+                            .where(KnowledgeNodeModel.id == uuid.UUID(nid))
+                            .values(degree_centrality=score)
+                        )
+                    await session.commit()
+            except Exception as db_err:
+                logger.error("failed_to_update_centrality_in_db", error=str(db_err))
 
         return {str(k): v for k, v in scores.items()}
 

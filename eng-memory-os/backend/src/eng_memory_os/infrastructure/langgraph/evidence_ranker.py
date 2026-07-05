@@ -24,6 +24,7 @@ class EvidenceRanker:
         vector_results: list[dict],
         graph_results: list[dict],
         lexical_results: list[dict],
+        cognee_results: list[dict] | None = None,
     ) -> list[dict]:
         """Merge and rank evidence from all retrieval sources.
 
@@ -68,6 +69,17 @@ class EvidenceRanker:
             if "evidence_id" not in r:
                 r["evidence_id"] = r.get("node_id", "")
             all_evidence.append(r)
+
+        # Score Cognee Cloud results
+        if cognee_results:
+            for r in cognee_results:
+                r["final_score"] = self._compute_score(
+                    similarity=r.get("similarity_score", 0.8),
+                    pagerank=0.0,
+                    freshness=1.0,
+                    importance=0.9,  # Cognee Cloud extracted entities/relationships are highly relevant
+                )
+                all_evidence.append(r)
 
         # Deduplicate by evidence_id
         seen: set[str] = set()

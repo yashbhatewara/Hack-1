@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Zap,
   GitFork,
+  Clock,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { motion } from 'framer-motion';
@@ -19,6 +20,7 @@ import { motion } from 'framer-motion';
 const NAV_ITEMS = [
   { href: '/',           icon: Activity,  label: 'Dashboard' },
   { href: '/query',      icon: Search,    label: 'Query' },
+  { href: '/history',    icon: Clock,     label: 'Query History' },
   { href: '/ingest',     icon: Upload,    label: 'Ingest' },
   { href: '/integrations', icon: GitFork,  label: 'Integrations' },
   { href: '/graph',      icon: Network,   label: 'Knowledge Graph' },

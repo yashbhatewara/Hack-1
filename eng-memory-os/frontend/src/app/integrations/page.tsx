@@ -5,10 +5,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   GitFork, CheckCircle, AlertTriangle, Loader2, ArrowRight,
-  Database, MessageSquare, BookOpen, Key, Terminal as TerminalIcon
+  Database, Key, Terminal as TerminalIcon
 } from 'lucide-react';
 import { integrationApi } from '@/lib/api';
 import Link from 'next/link';
+import { clsx } from 'clsx';
 
 interface LogLine {
   id: string;
@@ -30,6 +31,7 @@ export default function IntegrationsPage() {
   const [token, setToken] = useState('');
   const [limit, setLimit] = useState(30);
   const [logs, setLogs] = useState<LogLine[]>([]);
+  const [showLogs, setShowLogs] = useState(false);
   const [syncedRepo, setSyncedRepo] = useState<{ owner: string; name: string; count: number } | null>(null);
 
   const addLog = (message: string, type: LogLine['type'] = 'info') => {
@@ -167,37 +169,63 @@ export default function IntegrationsPage() {
             </form>
           </div>
 
+          {/* Extend Logs Toggle Button */}
+          <div className="flex justify-start">
+            <button
+              type="button"
+              onClick={() => setShowLogs(prev => !prev)}
+              className="flex items-center gap-2 text-xs font-semibold text-brand-400 hover:text-brand-300 transition-colors bg-surface-hover/30 px-3 py-1.5 rounded-lg border border-surface-border/40"
+            >
+              <TerminalIcon className="w-3.5 h-3.5" />
+              {showLogs ? 'Hide Ingestion Console' : 'Extend Logs / View Console'}
+            </button>
+          </div>
+
           {/* Sync logs terminal */}
-          {(logs.length > 0 || mutation.isPending) && (
-            <div className="card p-5 border border-surface-border bg-slate-950/80 font-mono text-xs text-slate-300">
-              <div className="flex items-center gap-2 border-b border-surface-border/40 pb-2 mb-3">
-                <TerminalIcon className="w-4 h-4 text-brand-400" />
-                <span className="text-white font-semibold">Synchronization Log Console</span>
-                {mutation.isPending && (
-                  <span className="ml-auto flex items-center gap-1.5 text-slate-500 animate-pulse">
-                    <Loader2 className="w-3 h-3 animate-spin text-brand-400" /> Live
-                  </span>
-                )}
-              </div>
-              <div className="h-48 overflow-y-auto space-y-1.5 scrollbar-thin">
-                {logs.map((log) => (
-                  <div key={log.id} className="flex gap-2">
-                    <span className="text-slate-500">[{log.timestamp}]</span>
-                    <span className={
-                      log.type === 'error' ? 'text-accent-red' :
-                      log.type === 'success' ? 'text-accent-green' :
-                      log.type === 'warn' ? 'text-accent-orange' : 'text-slate-300'
-                    }>
-                      {log.type === 'error' && '[ERROR] '}
-                      {log.type === 'success' && '[SUCCESS] '}
-                      {log.type === 'warn' && '[WARN] '}
-                      {log.message}
-                    </span>
+          <AnimatePresence>
+            {showLogs && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="card p-5 border border-surface-border bg-slate-950/80 font-mono text-xs text-slate-300">
+                  <div className="flex items-center gap-2 border-b border-surface-border/40 pb-2 mb-3">
+                    <TerminalIcon className="w-4 h-4 text-brand-400" />
+                    <span className="text-white font-semibold">Synchronization Log Console</span>
+                    {mutation.isPending && (
+                      <span className="ml-auto flex items-center gap-1.5 text-slate-500 animate-pulse">
+                        <Loader2 className="w-3 h-3 animate-spin text-brand-400" /> Live
+                      </span>
+                    )}
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                  <div className="h-48 overflow-y-auto space-y-1.5 scrollbar-thin">
+                    {logs.length === 0 ? (
+                      <div className="text-slate-600 italic">No logs generated yet. Trigger a repository sync above.</div>
+                    ) : (
+                      logs.map((log) => (
+                        <div key={log.id} className="flex gap-2">
+                          <span className="text-slate-500">[{log.timestamp}]</span>
+                          <span className={clsx(
+                            log.type === 'error' && 'text-accent-red',
+                            log.type === 'success' && 'text-accent-green',
+                            log.type === 'warn' && 'text-accent-orange',
+                            log.type === 'info' && 'text-slate-300'
+                          )}>
+                            {log.type === 'error' && '[ERROR] '}
+                            {log.type === 'success' && '[SUCCESS] '}
+                            {log.type === 'warn' && '[WARN] '}
+                            {log.message}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Success summary redirect card */}
           <AnimatePresence>

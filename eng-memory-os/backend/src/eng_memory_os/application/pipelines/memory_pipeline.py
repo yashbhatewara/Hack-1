@@ -96,6 +96,12 @@ class MemoryPipeline:
                 )
             )
 
+            # Trigger Cognee Cloud synchronization in the background
+            import asyncio
+            asyncio.create_task(
+                self._remember_in_cognee_cloud(memory.raw_content, memory.title)
+            )
+
             logger.info(
                 "pipeline_completed",
                 memory_id=memory_id,
@@ -323,3 +329,64 @@ class MemoryPipeline:
         We use a conservative estimate (~2 characters per token) to prevent exceeding API limits.
         """
         return max(1, len(text) // 2)
+
+    async def _remember_in_cognee_cloud(self, content: str, title: str) -> None:
+        """Asynchronously index raw content into Cognee Cloud and cognify."""
+        import os
+        import httpx
+        cognee_url = os.environ.get("COGNEE_BASE_URL")
+        cognee_key = os.environ.get("COGNEE_API_KEY")
+        if not cognee_url or not cognee_key:
+            return
+
+        try:
+            base_url = cognee_url.rstrip("/")
+            headers = {
+                "X-Api-Key": cognee_key,
+            }
+            async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+                # 1. Add content to default_dataset using multipart form data
+                files = [
+                    ("data", ("memory.txt", f"Title: {title}\nContent:\n{content}".encode("utf-8"), "text/plain"))
+                ]
+                data = {
+                    "datasetName": "default_dataset"
+                }
+                add_res = await client.post(
+                    f"{base_url}/api/v1/add",
+                    headers=headers,
+                    data=data,
+                    files=files,
+                )
+                if add_res.status_code not in (200, 201):
+                    logger.warning(
+                        "cognee_cloud_add_failed",
+                        status=add_res.status_code,
+                        text=add_res.text,
+                    )
+                    return
+
+                # 2. Trigger cognify to process the dataset
+                cognify_payload = {
+                    "datasets": ["default_dataset"],
+                    "run_in_background": True,
+                }
+                cognify_headers = {
+                    "X-Api-Key": cognee_key,
+                    "Content-Type": "application/json",
+                }
+                cognify_res = await client.post(
+                    f"{base_url}/api/v1/cognify",
+                    headers=cognify_headers,
+                    json=cognify_payload,
+                )
+                if cognify_res.status_code not in (200, 201):
+                    logger.warning(
+                        "cognee_cloud_cognify_failed",
+                        status=cognify_res.status_code,
+                        text=cognify_res.text,
+                    )
+                else:
+                    logger.info("cognee_cloud_sync_initiated_successfully")
+        except Exception as e:
+            logger.warning("cognee_cloud_sync_failed", error=str(e))

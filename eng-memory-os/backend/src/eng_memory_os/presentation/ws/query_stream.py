@@ -119,6 +119,7 @@ async def _handle_query(client_id: str, message: dict) -> None:
     """Process a query message and stream progress updates."""
     query_text = message.get("text", "")
     user_id = message.get("user_id", "ws-user")
+    mode = message.get("mode", "agent")
 
     if not query_text:
         await manager.send_json(client_id, {
@@ -130,11 +131,13 @@ async def _handle_query(client_id: str, message: dict) -> None:
     start_time = time.perf_counter()
 
     # Send initial acknowledgment
+    initial_node = "retriever" if mode == "rag" else "gateway"
+    initial_msg = "Searching vector store, knowledge graph, and lexical index..." if mode == "rag" else "Classifying query intent..."
     await manager.send_json(client_id, {
         "type": "progress",
-        "node": "gateway",
+        "node": initial_node,
         "status": "started",
-        "message": "Classifying query intent...",
+        "message": initial_msg,
     })
 
     try:
@@ -142,7 +145,11 @@ async def _handle_query(client_id: str, message: dict) -> None:
         query = Query.create(raw_text=query_text, user_id=user_id)
 
         # Stream progress for each node
-        nodes = ["gateway", "planner", "retriever", "reasoner", "critic", "generator"]
+        if mode == "rag":
+            nodes = ["retriever", "reasoner"]
+        else:
+            nodes = ["gateway", "planner", "retriever", "reasoner", "critic", "generator"]
+
         for i, node in enumerate(nodes):
             await manager.send_json(client_id, {
                 "type": "progress",
@@ -155,10 +162,32 @@ async def _handle_query(client_id: str, message: dict) -> None:
             # Small delay to allow frontend to render progress
             await asyncio.sleep(0.1)
 
-        # Execute the full graph
-        response = await runner.run(query)
+        # Execute the query based on mode
+        if mode == "rag" and hasattr(runner, "run_rag"):
+            response = await runner.run_rag(query)
+        else:
+            response = await runner.run(query)
 
         total_time = (time.perf_counter() - start_time) * 1000
+
+        # Persist query log in the database
+        try:
+            from eng_memory_os.presentation.dependencies import get_db_session
+            from eng_memory_os.infrastructure.db.postgres_query_log_repository import PostgresQueryLogRepository
+            async with get_db_session() as session:
+                repo = PostgresQueryLogRepository(session)
+                await repo.save(
+                    user_id_str=user_id,
+                    raw_query=query_text,
+                    classified_intent=mode,
+                    response_text=response.response_text,
+                    confidence=float(response.confidence),
+                    is_degraded=response.is_degraded,
+                    total_time_ms=total_time,
+                    retry_count=response.retry_count,
+                )
+        except Exception as e:
+            logger.warning("ws_query_log_persist_failed", error=str(e))
 
         # Send final response
         await manager.send_json(client_id, {

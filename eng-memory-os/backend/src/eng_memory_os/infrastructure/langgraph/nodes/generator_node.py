@@ -21,34 +21,7 @@ class GeneratorNode:
         loop_count = state.get("loop_count", 0)
 
         # Build the final response
-        response_parts: list[str] = []
-
-        if is_degraded:
-            response_parts.append(reasoning)
-            response_parts.append("")
-            response_parts.append(
-                "---\n"
-                "⚠️ **Low Confidence Response**\n\n"
-                "I do not have sufficient historical data to fully answer this question "
-                "with high confidence. The above is based on limited evidence and should "
-                "be independently verified."
-            )
-        else:
-            response_parts.append(reasoning)
-
-        # Add citations footer
-        if citations:
-            response_parts.append("")
-            response_parts.append("---\n**Sources:**")
-            for i, citation in enumerate(citations, 1):
-                eid = citation.get("evidence_id", "")[:8]
-                source = citation.get("source_uri", "unknown source")
-                score = citation.get("relevance_score", 0)
-                response_parts.append(
-                    f"{i}. `[E-{eid}]` — {source} (relevance: {score:.0%})"
-                )
-
-        final_response = "\n".join(response_parts)
+        final_response = reasoning
 
         return {
             "final_response": final_response,

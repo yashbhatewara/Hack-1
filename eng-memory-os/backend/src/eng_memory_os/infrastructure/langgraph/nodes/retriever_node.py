@@ -45,15 +45,17 @@ class RetrieverNode:
         all_vector_results: list[dict] = []
         all_graph_results: list[dict] = []
         all_lexical_results: list[dict] = []
+        all_cognee_results: list[dict] = []
 
         for query in sub_queries:
-            # Execute all three retrieval methods in parallel
+            # Execute all four retrieval methods in parallel
             vector_task = self._vector_search(query)
             graph_task = self._graph_search(query)
             lexical_task = self._lexical_search(query)
+            cognee_task = self._cognee_cloud_recall(query)
 
-            vector_results, graph_results, lexical_results = await asyncio.gather(
-                vector_task, graph_task, lexical_task,
+            vector_results, graph_results, lexical_results, cognee_results = await asyncio.gather(
+                vector_task, graph_task, lexical_task, cognee_task,
                 return_exceptions=True,
             )
 
@@ -63,12 +65,15 @@ class RetrieverNode:
                 all_graph_results.extend(graph_results)
             if isinstance(lexical_results, list):
                 all_lexical_results.extend(lexical_results)
+            if isinstance(cognee_results, list):
+                all_cognee_results.extend(cognee_results)
 
         # Merge and rank all evidence
         evidence = self._ranker.rank(
             vector_results=all_vector_results,
             graph_results=all_graph_results,
             lexical_results=all_lexical_results,
+            cognee_results=all_cognee_results,
         )
 
         logger.info(
@@ -76,6 +81,7 @@ class RetrieverNode:
             vector_hits=len(all_vector_results),
             graph_hits=len(all_graph_results),
             lexical_hits=len(all_lexical_results),
+            cognee_hits=len(all_cognee_results),
             total_evidence=len(evidence),
         )
 
@@ -83,6 +89,7 @@ class RetrieverNode:
             "retrieved_chunks": all_vector_results,
             "graph_neighbors": all_graph_results,
             "lexical_matches": all_lexical_results,
+            "cognee_matches": all_cognee_results,
             "evidence": evidence[:20],  # Top 20 pieces of evidence
             "evidence_count": len(evidence),
             "nodes_visited": ["retriever"],
@@ -195,3 +202,57 @@ class RetrieverNode:
         terms.extend(re.findall(r"\b[A-Z]{1,3}[-_]?\d{2,}\b", query))
 
         return list(set(terms))
+
+    async def _cognee_cloud_recall(self, query: str) -> list[dict]:
+        """Query Cognee Cloud's recall API for entities and graph insights."""
+        import os
+        import httpx
+        cognee_url = os.environ.get("COGNEE_BASE_URL")
+        cognee_key = os.environ.get("COGNEE_API_KEY")
+        if not cognee_url or not cognee_key:
+            logger.debug("cognee_cloud_credentials_missing_skipping_recall")
+            return []
+
+        try:
+            base_url = cognee_url.rstrip("/")
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                headers = {
+                    "X-Api-Key": cognee_key,
+                    "Content-Type": "application/json",
+                }
+                response = await client.post(
+                    f"{base_url}/api/v1/recall",
+                    headers=headers,
+                    json={"query": query},
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    results = []
+                    for idx, item in enumerate(data):
+                        text = item.get("text") or item.get("raw", {}).get("value", "")
+                        if text:
+                            import hashlib
+                            import uuid
+                            h = hashlib.md5(text.encode("utf-8")).hexdigest()
+                            evidence_id = str(uuid.UUID(h))
+
+                            results.append({
+                                "evidence_id": evidence_id,
+                                "memory_id": "cognee-cloud",
+                                "source_uri": "https://cognee.ai",
+                                "similarity_score": 0.85,
+                                "content": text,
+                                "source": "cognee-cloud",
+                            })
+                    logger.info("cognee_cloud_recall_success", hits=len(results))
+                    return results
+                else:
+                    logger.warning(
+                        "cognee_cloud_recall_error_status",
+                        status=response.status_code,
+                        text=response.text,
+                    )
+        except Exception as e:
+            logger.warning("cognee_cloud_recall_failed", error=str(e))
+
+        return []

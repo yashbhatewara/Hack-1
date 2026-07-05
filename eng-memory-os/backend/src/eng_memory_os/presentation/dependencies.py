@@ -92,7 +92,8 @@ async def initialize_services(settings: Settings) -> None:
 
     # 6. Knowledge Graph
     from eng_memory_os.infrastructure.cognee.cognee_adapter import CogneeGraphAdapter
-    _graph_repo = CogneeGraphAdapter()
+    _graph_repo = CogneeGraphAdapter(_db_manager)
+    await _graph_repo.load_graph()
 
     # 7. Agent Graph Runner
     from eng_memory_os.infrastructure.langgraph.graph_builder import AgentGraphRunner
@@ -147,6 +148,17 @@ async def initialize_services(settings: Settings) -> None:
     ))
     _event_bus.subscribe_all(EventAuditLogger())
 
+    # Rebuild graph if empty but memories exist
+    try:
+        stats = await _graph_repo.get_graph_stats()
+        if stats["total_nodes"] == 0:
+            import asyncio
+            asyncio.create_task(
+                _rebuild_graph_if_empty(await _get_memory_repo_internal(), extract_uc)
+            )
+    except Exception as e:
+        logger.warning("failed_to_check_graph_stats_for_rebuild", error=str(e))
+
     logger.info("all_services_initialized")
 
 
@@ -158,6 +170,23 @@ async def shutdown_services() -> None:
     if _vector_store and hasattr(_vector_store, "close"):
         await _vector_store.close()
     logger.info("all_services_shutdown")
+
+
+async def _rebuild_graph_if_empty(memory_repo, extract_uc):
+    """Automatically run entity extraction for all memories if the graph is empty."""
+    try:
+        # Load recent memories
+        memories = await memory_repo.list_recent(limit=1000)
+        if memories:
+            logger.info("auto_rebuilding_knowledge_graph", count=len(memories))
+            for m in memories:
+                try:
+                    await extract_uc.execute(str(m.id))
+                except Exception as e:
+                    logger.warning("auto_rebuild_extraction_failed", memory_id=str(m.id), error=str(e))
+            logger.info("auto_rebuilding_knowledge_graph_completed")
+    except Exception as e:
+        logger.error("auto_rebuild_graph_failed", error=str(e))
 
 
 async def _get_memory_repo_internal():
@@ -286,3 +315,14 @@ async def get_memory_repo():
 
 def get_uptime() -> float:
     return time.monotonic() - _start_time
+
+
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def get_db_session():
+    """Context manager that yields a transactional database session."""
+    if _db_manager is None:
+        raise RuntimeError("Database manager not initialized")
+    async with _db_manager.session() as session:
+        yield session

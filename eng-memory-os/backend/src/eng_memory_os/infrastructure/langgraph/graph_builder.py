@@ -125,6 +125,11 @@ class AgentGraphRunner:
         graph_repo: KnowledgeGraphRepository,
         embedding_service: EmbeddingService,
     ) -> None:
+        self._llm = llm_gateway
+        self._vector_store = vector_store
+        self._graph_repo = graph_repo
+        self._embedding_service = embedding_service
+
         builder = AgentGraphBuilder(
             llm_gateway=llm_gateway,
             vector_store=vector_store,
@@ -178,6 +183,60 @@ class AgentGraphRunner:
             total_time_ms=total_time_ms,
             retry_count=retry_count,
             nodes_visited=nodes_visited,
+        )
+
+    async def run_rag(self, query: Query) -> AgentResponse:
+        """Execute a simple, single-pass RAG pipeline."""
+        start_time = time.perf_counter()
+
+        # 1. Retrieve evidence
+        retriever = RetrieverNode(self._vector_store, self._graph_repo, self._embedding_service)
+        retriever_state = {
+            "query_text": query.raw_text,
+            "sub_queries": [query.raw_text],
+        }
+        retrieval_result = await retriever(retriever_state)
+        evidence = retrieval_result.get("evidence", [])
+
+        # 2. Synthesize answer
+        reasoner = ReasonerNode(self._llm)
+        reasoner_state = {
+            "query_text": query.raw_text,
+            "evidence": evidence,
+        }
+        reasoning_result = await reasoner(reasoner_state)
+        reasoning_text = reasoning_result.get("reasoning_text", "")
+        citations_used = reasoning_result.get("citations_used", [])
+
+        # 3. Format response (analogous to GeneratorNode)
+        final_response = reasoning_text
+
+        total_time_ms = (time.perf_counter() - start_time) * 1000
+
+        # Build citations with populated content snippets
+        citations = []
+        evidence_content_map = {e.get("evidence_id"): e.get("content", "") for e in evidence}
+        for c in citations_used:
+            evidence_id = c.get("evidence_id", "")
+            citations.append(
+                Citation(
+                    evidence_id=evidence_id,
+                    memory_id=c.get("memory_id", ""),
+                    source_uri=c.get("source_uri", ""),
+                    chunk_content=evidence_content_map.get(evidence_id, ""),
+                    relevance_score=c.get("relevance_score", 0.0),
+                )
+            )
+
+        # RAG mode does not loop, retry count is 0
+        return AgentResponse.create_success(
+            query_id=query.id,
+            response_text=final_response,
+            confidence=ConfidenceScore(0.8),  # Fixed baseline confidence for single-pass
+            citations=citations,
+            total_time_ms=total_time_ms,
+            retry_count=0,
+            nodes_visited=["retriever", "reasoner"],
         )
 
     @staticmethod

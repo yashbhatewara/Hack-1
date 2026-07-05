@@ -49,14 +49,26 @@ class GitHubAdapter(IntegrationAdapter):
     async def _run_git_command(self, *args: str, cwd: str | None = None) -> str:
         """Run a git CLI command asynchronously and return its output."""
         import asyncio
+        import os
+        env = os.environ.copy()
+        env["GIT_TERMINAL_PROMPT"] = "0"
         proc = await asyncio.create_subprocess_exec(
             "git",
             *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
+            env=env,
         )
-        stdout, stderr = await proc.communicate()
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+        except asyncio.TimeoutError:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            raise RuntimeError(f"Git command timed out: {' '.join(args)}")
+
         if proc.returncode != 0:
             raise RuntimeError(f"Git command failed: {' '.join(args)}. Error: {stderr.decode().strip()}")
         return stdout.decode("utf-8", errors="replace")
@@ -122,7 +134,9 @@ class GitHubAdapter(IntegrationAdapter):
                     raw_issues = response.json()
                     logger.info("fetched_github_issues", count=len(raw_issues))
 
-                    for issue in raw_issues[:limit]:
+                    import asyncio
+
+                    async def process_issue(issue):
                         try:
                             number = issue.get("number")
                             title = issue.get("title", "")
@@ -132,7 +146,7 @@ class GitHubAdapter(IntegrationAdapter):
                             created_at_str = issue.get("created_at")
 
                             if not created_at_str:
-                                continue
+                                return None
                             created_at = datetime.strptime(created_at_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
 
                             # Determine if it's a Pull Request or a standard Issue
@@ -172,7 +186,7 @@ class GitHubAdapter(IntegrationAdapter):
                             tags.append(source_type.value)
                             tags.append(self.repo_name.lower())
 
-                            ingested_item = IngestedItem(
+                            return IngestedItem(
                                 source_uri=html_url,
                                 source_type=source_type,
                                 title=f"GitHub #{number}: {title}",
@@ -182,11 +196,15 @@ class GitHubAdapter(IntegrationAdapter):
                                 external_timestamp=created_at,
                                 tags=tags,
                             )
-                            items.append(ingested_item)
-
                         except Exception as e:
                             logger.warning("failed_to_parse_github_issue", number=issue.get("number"), error=str(e))
-                            continue
+                            return None
+
+                    tasks = [process_issue(issue) for issue in raw_issues[:limit]]
+                    results = await asyncio.gather(*tasks)
+                    for item in results:
+                        if item is not None:
+                            items.append(item)
                 else:
                     logger.warning("failed_to_fetch_github_issues", status_code=response.status_code, error=response.text)
             except Exception as e:
@@ -282,11 +300,13 @@ class GitHubAdapter(IntegrationAdapter):
 
                 if log_output.strip():
                     commit_count = 0
-                    for line in log_output.strip().split("\n"):
+                    lines = log_output.strip().split("\n")
+
+                    async def process_commit(line: str):
                         try:
                             parts = line.split("|", 4)
                             if len(parts) < 5:
-                                continue
+                                return None
                             sha, author_name, author_email, timestamp_str, subject = parts
 
                             created_at = datetime.fromtimestamp(int(timestamp_str), tz=UTC)
@@ -306,7 +326,7 @@ class GitHubAdapter(IntegrationAdapter):
                             markdown_content += f"**Date:** {created_at.isoformat()}\n\n"
                             markdown_content += f"## Changes and Diff\n\n```diff\n{diff_output}\n```\n"
 
-                            ingested_item = IngestedItem(
+                            return IngestedItem(
                                 source_uri=html_url,
                                 source_type=MemorySource.GITHUB_COMMIT,
                                 title=f"Commit {sha[:7]}: {subject}",
@@ -316,11 +336,16 @@ class GitHubAdapter(IntegrationAdapter):
                                 external_timestamp=created_at,
                                 tags=["github_commit", self.repo_name.lower(), sha[:7]],
                             )
-                            items.append(ingested_item)
-                            commit_count += 1
                         except Exception as e:
                             logger.warning("failed_to_parse_local_git_commit", error=str(e))
-                            continue
+                            return None
+
+                    commit_tasks = [process_commit(line) for line in lines]
+                    commit_results = await asyncio.gather(*commit_tasks)
+                    for item in commit_results:
+                        if item is not None:
+                            items.append(item)
+                            commit_count += 1
                 logger.info("local_git_clone_completed", total_ingested_items=len(items))
             except Exception as e:
                 logger.exception("local_git_clone_failed", error=str(e))

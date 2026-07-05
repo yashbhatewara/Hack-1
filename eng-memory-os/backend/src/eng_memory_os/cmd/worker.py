@@ -64,7 +64,8 @@ class BackgroundWorker:
         db_manager = DatabaseSessionManager(self._settings.database_url)
         await db_manager.initialize()
         self._memory_repo = _MemoryRepoFactory(db_manager)
-        self._graph_repo = CogneeGraphAdapter()
+        self._graph_repo = CogneeGraphAdapter(db_manager)
+        await self._graph_repo.load_graph()
 
         self._decay_uc = DecayMemoryUseCase(
             memory_repo=self._memory_repo,

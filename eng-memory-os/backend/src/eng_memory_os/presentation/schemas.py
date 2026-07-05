@@ -108,6 +108,7 @@ class MemoryStatsDTO(BaseModel):
     archived: int = 0
     failed: int = 0
     total: int = 0
+    total_queries: int = 0
 
 
 # ───────────────────────────── Query ─────────────────────────────
@@ -117,10 +118,12 @@ class QueryRequestDTO(BaseModel):
     model_config = ConfigDict(json_schema_extra={
         "example": {
             "query": "Why did we switch from Redis to Valkey for session caching?",
+            "mode": "agent",
         }
     })
 
     query: str = Field(..., min_length=3, max_length=2000, description="The natural language query")
+    mode: str = Field("agent", description="Query execution mode: 'agent' or 'rag'")
 
 
 class CitationDTO(BaseModel):

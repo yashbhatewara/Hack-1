@@ -8,6 +8,7 @@ and returns the final response with citations and confidence scores.
 from __future__ import annotations
 
 import time
+from typing import TypedDict
 
 import structlog
 
@@ -19,14 +20,24 @@ from eng_memory_os.infrastructure.event_bus.in_memory_bus import InMemoryEventBu
 logger = structlog.get_logger(__name__)
 
 
+class CitationDict(TypedDict):
+    """Dictionary representation of a citation."""
+    evidence_id: str
+    memory_id: str
+    source_uri: str
+    relevance_score: float
+    snippet: str
+
+
 class QueryMemoryRequest:
     """Input for the QueryMemory use case."""
 
-    __slots__ = ("query_text", "user_id")
+    __slots__ = ("query_text", "user_id", "mode")
 
-    def __init__(self, query_text: str, user_id: str) -> None:
+    def __init__(self, query_text: str, user_id: str, mode: str = "agent") -> None:
         self.query_text = query_text
         self.user_id = user_id
+        self.mode = mode
 
 
 class QueryMemoryResponse:
@@ -43,7 +54,7 @@ class QueryMemoryResponse:
         response_text: str,
         confidence: float,
         is_degraded: bool,
-        citations: list[dict[str, str | float]],
+        citations: list[CitationDict],
         total_time_ms: float,
         retry_count: int,
     ) -> None:
@@ -88,12 +99,12 @@ class QueryMemoryUseCase:
                 query_id=str(query.id),
                 raw_text=request.query_text,
                 user_id=request.user_id,
-                classified_intent="pending",
+                classified_intent="pending" if request.mode == "agent" else "rag",
             )
         )
 
         # 3. Execute the agent graph
-        agent_response: AgentResponse = await self._run_agent_graph(query)
+        agent_response: AgentResponse = await self._run_agent_graph(query, request.mode)
 
         total_time = (time.perf_counter() - start_time) * 1000
 
@@ -119,7 +130,7 @@ class QueryMemoryUseCase:
         )
 
         # 5. Build response
-        citations = [
+        citations: list[CitationDict] = [
             {
                 "evidence_id": c.evidence_id,
                 "memory_id": c.memory_id,
@@ -140,13 +151,15 @@ class QueryMemoryUseCase:
             retry_count=agent_response.retry_count,
         )
 
-    async def _run_agent_graph(self, query: Query) -> AgentResponse:
-        """Execute the LangGraph agent graph.
+    async def _run_agent_graph(self, query: Query, mode: str = "agent") -> AgentResponse:
+        """Execute the LangGraph agent graph or direct RAG runner.
 
         This method delegates to the agent graph runner which is injected
         from the infrastructure layer (Phase 5).
         """
         if hasattr(self._agent_runner, "run"):
+            if mode == "rag" and hasattr(self._agent_runner, "run_rag"):
+                return await self._agent_runner.run_rag(query)  # type: ignore[attr-defined]
             return await self._agent_runner.run(query)  # type: ignore[union-attr]
 
         # Fallback: if agent runner not yet wired, return insufficient evidence
