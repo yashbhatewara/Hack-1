@@ -4,6 +4,8 @@ CORS middleware configuration.
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,10 +13,13 @@ from fastapi.middleware.cors import CORSMiddleware
 def configure_cors(app: FastAPI, allowed_origins: list[str] | None = None) -> None:
     """Configure CORS for the FastAPI application.
 
-    In development, allows all origins. In production, restricts to
-    the provided list of allowed origins.
+    Origins are read from the CORS_ORIGINS env var (comma-separated).
+    Falls back to localhost dev origins if not set.
     """
-    origins = allowed_origins or [
+    env_origins = os.environ.get("CORS_ORIGINS", "")
+    env_list = [o.strip() for o in env_origins.split(",") if o.strip()]
+
+    origins = allowed_origins or env_list or [
         "http://localhost:3000",      # Next.js dev server
         "http://localhost:3001",      # Alternative dev port
         "http://127.0.0.1:3000",

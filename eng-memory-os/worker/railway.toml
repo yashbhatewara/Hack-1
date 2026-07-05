@@ -1,0 +1,8 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "deploy/Dockerfile.backend"
+
+[deploy]
+startCommand = "python -m eng_memory_os.cmd.worker"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 5

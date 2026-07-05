@@ -1,0 +1,11 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "deploy/Dockerfile.backend"
+buildCommand = ""
+
+[deploy]
+startCommand = "sh -c 'alembic upgrade head && uvicorn eng_memory_os.cmd.api_server:app --host 0.0.0.0 --port $PORT'"
+healthcheckPath = "/api/v1/system/health"
+healthcheckTimeout = 30
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
