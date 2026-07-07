@@ -18,7 +18,7 @@ EMO is organized into five isolated **Bounded Contexts** to maintain separation 
 4. **Integration Context:** Concrete adapters for external integrations (GitHub, Jira, Slack, Notion) to sync artifacts into the ingestion pipeline.
 5. **Gateway Context:** Manages LLM client routing, token use audits, request costs, and circuit-breaker triggers with local model fallbacks.
 
-```
+```text
        ┌────────────────────────────────────────────────────────┐
        │                   Presentation Layer                   │
        │        (FastAPI REST Routes & WebSockets, DTOs)        │
@@ -122,7 +122,7 @@ flowchart TD
     RetrieverNode -->|Hybrid Search| ReasonerNode[Reasoner Node]
     ReasonerNode -->|Synthesize Citation| CriticNode[Critic Node]
     
-    CriticNode -->|Confidence < 85% & Loop < 3| PlannerNode
+    CriticNode -->|"Confidence < 85% and Loop < 3"| PlannerNode
     CriticNode -->|Confidence >= 85% or Max Loops| GeneratorNode[Generator Node]
     GeneratorNode --> End((Response Streamed))
 ```
@@ -131,7 +131,7 @@ flowchart TD
 * **Planner Node:** Decomposes complex queries into simple retrieval sub-tasks.
 * **Retriever Node:** Performs hybrid search, executing vector searches, graph centrality/neighbor traversal, and BM25 lexical keyword matches.
 * **Reasoner Node:** Drafts response text using retrieved evidence.
-* **Critic Node:** Validates reasoning against original evidence. If confidence is `< 0.85`, it triggers a query refinement loop (up to 3 times before fallback).
+* **Critic Node:** Validates reasoning against original evidence. If confidence is less than 0.85, it triggers a query refinement loop (up to 3 times before fallback).
 * **Generator Node:** Emits the final output with markdown and precise inline citations `[Evidence ID]`.
 
 ---
@@ -167,11 +167,13 @@ docker-compose --profile local-llm up --build
 ### ⚡ The Quick Way (Run All Concurrently)
 
 We have provided a unified script `run_local.py` in the root folder that will:
+
 1. Start PostgreSQL and Qdrant databases via Docker Compose in the background.
 2. Run database migrations (`alembic upgrade head`).
 3. Start the Backend API Server, Background Worker, and Frontend UI concurrently in a single terminal with colored logging.
 
 To use it:
+
 ```bash
 # 1. Install dependencies first
 pip install -r requirements.txt
@@ -185,7 +187,6 @@ python run_local.py
 ---
 
 ### 1. Configuration
-
 
 Copy the sample environment file in `eng-memory-os/` and configure your credentials:
 
@@ -238,7 +239,6 @@ python -m eng_memory_os.cmd.worker
 uvicorn eng_memory_os.cmd.api_server:app --reload --port 8000
 ```
 
-
 ### 3. Frontend
 
 Navigate to the frontend folder, install packages, and boot the Next.js development server:
@@ -265,7 +265,7 @@ The client dashboard runs on `http://localhost:3000` (connecting to backend at `
   * Receives: `{ "type": "query", "text": "Why did we switch to Postgres?" }`
   * Streams real-time progressive reasoning progress updates (`type: "progress"`) before sending the final answer (`type: "response"`).
 
-For the full specifications, read the [REST & WebSocket API Guide](file:///e:/Hackathon/Hack-1/api.md).
+For the full specifications, read the [REST & WebSocket API Guide](../api.md).
 
 ---
 
@@ -295,4 +295,4 @@ uv run pytest -m integration
 
 ## 📝 License
 
-Distributed under the MIT License. See [LICENSE](file:
+Distributed under the MIT License. See [LICENSE](../LICENSE) for more details.
