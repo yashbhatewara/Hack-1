@@ -77,7 +77,7 @@ class AgentGraphBuilder:
         generator = GeneratorNode()
 
         # Build the state graph
-        graph = StateGraph(AgentState)
+        graph = StateGraph(AgentState)  # type: ignore[arg-type]
 
         # Add nodes
         graph.add_node("gateway", gateway)
@@ -191,7 +191,7 @@ class AgentGraphRunner:
 
         # 1. Retrieve evidence
         retriever = RetrieverNode(self._vector_store, self._graph_repo, self._embedding_service)
-        retriever_state = {
+        retriever_state: AgentState = {
             "query_text": query.raw_text,
             "sub_queries": [query.raw_text],
         }
@@ -200,7 +200,7 @@ class AgentGraphRunner:
 
         # 2. Synthesize answer
         reasoner = ReasonerNode(self._llm)
-        reasoner_state = {
+        reasoner_state: AgentState = {
             "query_text": query.raw_text,
             "evidence": evidence,
         }

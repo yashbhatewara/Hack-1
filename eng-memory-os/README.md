@@ -164,7 +164,28 @@ docker-compose --profile local-llm up --build
 
 ## 💻 Local Development Setup
 
+### ⚡ The Quick Way (Run All Concurrently)
+
+We have provided a unified script `run_local.py` in the root folder that will:
+1. Start PostgreSQL and Qdrant databases via Docker Compose in the background.
+2. Run database migrations (`alembic upgrade head`).
+3. Start the Backend API Server, Background Worker, and Frontend UI concurrently in a single terminal with colored logging.
+
+To use it:
+```bash
+# 1. Install dependencies first
+pip install -r requirements.txt
+cd eng-memory-os/frontend && npm install
+cd ../..
+
+# 2. Run the unified development runner
+python run_local.py
+```
+
+---
+
 ### 1. Configuration
+
 
 Copy the sample environment file in `eng-memory-os/` and configure your credentials:
 
@@ -175,7 +196,9 @@ cp .env.example .env
 
 ### 2. Backend
 
-Navigate to the backend folder, install dependencies using `uv`, run database migrations, and boot the server:
+Navigate to the backend folder, install dependencies, run database migrations, and boot the server:
+
+#### Option A: Using `uv` (Recommended for speed and clean environment)
 
 ```bash
 cd backend
@@ -190,6 +213,31 @@ uv run python -m eng_memory_os.cmd.worker
 # Start API server
 uv run uvicorn eng_memory_os.cmd.api_server:app --reload --port 8000
 ```
+
+#### Option B: Using standard `pip` and `requirements.txt`
+
+If you do not have `uv` installed, you can use standard Python virtual environment tools:
+
+```bash
+# From the repository root directory
+python -m venv .venv
+# On macOS/Linux: source .venv/bin/activate
+# On Windows: .venv\Scripts\activate
+
+# Install dependencies and the backend package in editable mode
+pip install -r requirements.txt
+
+# Run migrations
+cd eng-memory-os/backend
+alembic upgrade head
+
+# Start background worker
+python -m eng_memory_os.cmd.worker
+
+# Start API server
+uvicorn eng_memory_os.cmd.api_server:app --reload --port 8000
+```
+
 
 ### 3. Frontend
 

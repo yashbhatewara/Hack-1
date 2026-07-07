@@ -13,6 +13,10 @@ dev-frontend: ## Start frontend dev server
 dev-all: ## Start all services via docker-compose
 	docker-compose up --build
 
+dev-local: ## Start databases in Docker, run app services (API, Worker, UI) locally in parallel
+	python ../run_local.py
+
+
 # ===========================
 # Testing
 # ===========================

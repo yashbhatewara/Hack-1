@@ -1,0 +1,7 @@
+# Engineering Memory OS — Application dependencies
+
+# Install backend dependencies
+-r backend/requirements.txt
+
+# Install backend package in editable mode
+-e backend

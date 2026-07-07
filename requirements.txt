@@ -1,0 +1,7 @@
+# Engineering Memory OS — Global dependencies
+
+# Install backend dependencies
+-r eng-memory-os/backend/requirements.txt
+
+# Install backend package in editable mode
+-e eng-memory-os/backend
